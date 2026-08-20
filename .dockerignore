@@ -1,0 +1,11 @@
+.git
+.venv
+.venv311
+node_modules
+client/node_modules
+client/dist
+third_party
+*.pyc
+__pycache__
+.env
+server/.env

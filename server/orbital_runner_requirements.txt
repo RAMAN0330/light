@@ -1,0 +1,6 @@
+firecrawl-anydoc==0.1.9
+headroom-ai==0.35.0
+agent-reach==0.1.0
+graphifyy==0.9.42
+fastapi==0.141.1
+uvicorn==0.52.0

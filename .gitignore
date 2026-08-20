@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+client/dist/
+client/node_modules/
+node_modules/
+.venv/
+.venv311/

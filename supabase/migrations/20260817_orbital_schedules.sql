@@ -1,0 +1,4 @@
+create table if not exists public.workspace_schedules (id uuid primary key default gen_random_uuid(), workspace_id uuid not null references public.workspaces(id) on delete cascade, title text not null, cron_expression text not null, enabled boolean not null default true, created_by uuid not null references auth.users(id), created_at timestamptz not null default now());
+alter table public.workspace_schedules enable row level security;
+drop policy if exists "members read workspace schedules" on public.workspace_schedules;
+create policy "members read workspace schedules" on public.workspace_schedules for select using (exists (select 1 from public.workspaces join public.organization_memberships on organization_memberships.organization_id=workspaces.organization_id where workspaces.id=workspace_schedules.workspace_id and organization_memberships.user_id=(select auth.uid())));

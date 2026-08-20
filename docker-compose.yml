@@ -1,0 +1,94 @@
+services:
+  gateway:
+    build: ./gateway
+    environment:
+      API_URL: http://api:8000
+      GATEWAY_CORS_ORIGINS: ${GATEWAY_CORS_ORIGINS:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file: ./server/.env
+    environment:
+      ORBITAL_RUNNER_URL: http://orbital-runners:8010
+      ORBITAL_RUNNER_TOKEN: ${ORBITAL_RUNNER_TOKEN:?set ORBITAL_RUNNER_TOKEN}
+      ORBITAL_INFRA_AGENT_URL: http://infra-agent:8020
+      ORBITAL_INFRA_AGENT_TOKEN: ${ORBITAL_INFRA_AGENT_TOKEN:?set ORBITAL_INFRA_AGENT_TOKEN}
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  orbital-runners:
+    build:
+      context: .
+      dockerfile: server/orbital_runners.Dockerfile
+    expose:
+      - "8010"
+    environment:
+      ORBITAL_RUNNER_TOKEN: ${ORBITAL_RUNNER_TOKEN:?set ORBITAL_RUNNER_TOKEN}
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8010/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Separate, differently-privileged service from orbital-runners above:
+  # it legitimately needs Docker-socket / in-cluster Kubernetes credentials
+  # that orbital-runners is deliberately never given. Do not add socket or
+  # kubeconfig access to orbital-runners instead of using this service.
+  infra-agent:
+    build:
+      context: .
+      dockerfile: server/infra_agent.Dockerfile
+    environment:
+      ORBITAL_INFRA_AGENT_TOKEN: ${ORBITAL_INFRA_AGENT_TOKEN:?set ORBITAL_INFRA_AGENT_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount a kubeconfig here (read-only) if registering a k8s_cluster
+      # connection, e.g.: - ${KUBECONFIG:-~/.kube/config}:/root/.kube/config:ro
+      #
+      # Phase 2 (mutating actions — container/pod stop/restart/delete,
+      # deployment scale) is live: the service account behind that
+      # kubeconfig should grant get/list/watch always, and delete/patch
+      # only once you intend to allow destructive infra actions from
+      # Orbital — Orbital's own policy gate defaults every mutating action
+      # to require_approval regardless, but cluster-side RBAC is the
+      # backstop, not the only control.
+    expose:
+      - "8020"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8020/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: ./client
+      args:
+        VITE_API_URL: http://localhost:3000
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "8080:80"

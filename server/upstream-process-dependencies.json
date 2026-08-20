@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "install_phase": "docker-build",
+  "packages": [
+    {
+      "source": "anydoc",
+      "worker": "document",
+      "kind": "python",
+      "requirement": "firecrawl-anydoc==0.1.9"
+    }
+  ],
+  "process_only_sources": [
+    "hermes-agent",
+    "headroom",
+    "agent-reach",
+    "graphify",
+    "graft",
+    "task-observer"
+  ],
+  "notes": "These sources contribute skill instructions only. Their upstream runners, proxies, CLIs, browser sessions, and gateways are intentionally not installed in the Orbital API image."
+}
