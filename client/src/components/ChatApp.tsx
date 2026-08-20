@@ -39,6 +39,7 @@ import {
   type LauncherMode,
 } from "./OrbitalLauncher";
 import { SkillsDialog } from "./SkillsDialog";
+import { WorkspacesPage } from "./WorkspacesPage";
 import { VirtualMessageList } from "./VirtualMessageList";
 import { WorkspaceDashboard } from "./WorkspaceDashboard";
 import {
@@ -47,15 +48,18 @@ import {
 } from "./WorkspaceSidebar";
 import { Button } from "./ui/button";
 import { Input, Select, Textarea } from "./ui/field";
-import { Dialog } from "./ui/dialog";
+import { DialogShell, OverlayBody, OverlayFooter, OverlayHeader } from "./ui/dialog-shell";
 import {
+  Building2,
   CheckCheck,
+  FolderKanban,
   Clock,
   History,
   MessageSquarePlus,
   PenLine,
   Search,
   SendHorizontal,
+  Settings2,
   Sparkles,
   Trash2,
   X,
@@ -990,15 +994,13 @@ export function ChatApp({
   );
 
   return (
-    <main className={surface === "overview" ? "workspace-shell overview-active" : surface === "projects" ? "workspace-shell projects-active" : surface === "repositories" ? "workspace-shell repositories-active" : "workspace-shell conversations-active"}>
+    <main className={surface === "overview" ? "workspace-shell overview-active" : surface === "projects" ? "workspace-shell projects-active" : surface === "repositories" ? "workspace-shell repositories-active" : surface === "workspaces" ? "workspace-shell workspaces-active" : "workspace-shell conversations-active"}>
       <WorkspaceSidebar
-        workspaces={workspaces}
-        workspaceId={workspaceId}
         surface={surface}
+        workspaceCount={workspaces.length}
         conversationCount={conversations.length}
         projectCount={projects.length}
-        onWorkspaceChange={setWorkspaceId}
-        onCreateWorkspace={() => setWorkspaceForm(true)}
+        onWorkspaces={() => setSurface("workspaces")}
         onOverview={() => setSurface("overview")}
         onConversations={() => setSurface("conversations")}
         onProjects={() => { if (!projectId && projects[0]) setProjectId(projects[0].id); setSurface("projects"); }}
@@ -1008,8 +1010,15 @@ export function ChatApp({
         onKnowledge={() => void openKnowledge()}
         onLauncher={openLauncher}
       />
-      <section className={surface === "overview" || surface === "projects" || surface === "repositories" ? "workspace-panel" : "chat-panel"}>
-        {surface === "overview" ? (
+      <section className={surface === "conversations" ? "chat-panel" : "workspace-panel"}>
+        {surface === "workspaces" ? (
+          <WorkspacesPage
+            workspaces={workspaces}
+            workspaceId={workspaceId}
+            onSelectWorkspace={setWorkspaceId}
+            onCreateWorkspace={() => setWorkspaceForm(true)}
+          />
+        ) : surface === "overview" ? (
           <WorkspaceDashboard
             workspace={workspaces.find((workspace) => workspace.id === workspaceId)}
             tasks={tasks}
@@ -1180,7 +1189,10 @@ export function ChatApp({
             <div className="default-stage">
               <div className="empty">
                 <h2 className="typewriter" aria-label={emptyStateHeadline}>
-                  {typedHeadline}
+                  <span className="typewriter-sizer" aria-hidden="true">
+                    {emptyStateHeadline}
+                  </span>
+                  <span className="typewriter-text">{typedHeadline}</span>
                 </h2>
                 <p>
                   Start with a thought. Orbital will help shape what comes next.
@@ -1251,45 +1263,24 @@ export function ChatApp({
         )}
           </>
         )}
-        <Dialog
-          open={Boolean(deleteId)}
-          className="delete-backdrop"
-          role="presentation"
-        >
-          <section
-            className="delete-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-title"
-          >
-            <p className="dialog-kicker">Remove session</p>
-            <h2 id="delete-title">Delete this conversation?</h2>
-            <p>
-              This will permanently remove the conversation and its messages.
-            </p>
-            <div>
-              <Button
-                variant="secondary"
-                className="dialog-cancel"
-                onClick={() => setDeleteId("")}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                className="dialog-delete"
-                onClick={() => void deleteConversation()}
-              >
-                Delete conversation
-              </Button>
-            </div>
-          </section>
-        </Dialog>
+        <DialogShell open={Boolean(deleteId)} labelledBy="delete-title" className="legacy-dialog">
+          <p className="dialog-kicker">Remove session</p>
+          <h2 id="delete-title">Delete this conversation?</h2>
+          <p>This will permanently remove the conversation and its messages.</p>
+          <div>
+            <Button variant="secondary" className="dialog-cancel" onClick={() => setDeleteId("")}>
+              Cancel
+            </Button>
+            <Button variant="destructive" className="dialog-delete" onClick={() => void deleteConversation()}>
+              Delete conversation
+            </Button>
+          </div>
+        </DialogShell>
         {renameTitle && (
-          <div className="delete-backdrop" role="presentation">
-            <form className="delete-dialog" onSubmit={renameConversation}>
-              <p className="dialog-kicker">Rename session</p>
-              <h2>Give this conversation a clear name</h2>
+          <DialogShell open labelledBy="rename-title" className="legacy-dialog">
+            <p className="dialog-kicker">Rename session</p>
+            <h2 id="rename-title">Give this conversation a clear name</h2>
+            <form onSubmit={renameConversation}>
               <input
                 aria-label="Conversation name"
                 value={renameTitle}
@@ -1297,11 +1288,7 @@ export function ChatApp({
                 autoFocus
               />
               <div>
-                <button
-                  className="dialog-cancel"
-                  type="button"
-                  onClick={() => setRenameTitle("")}
-                >
+                <button className="dialog-cancel" type="button" onClick={() => setRenameTitle("")}>
                   Cancel
                 </button>
                 <button className="dialog-primary" type="submit">
@@ -1309,30 +1296,29 @@ export function ChatApp({
                 </button>
               </div>
             </form>
-          </div>
+          </DialogShell>
         )}
         {workspaceForm && (
-          <div className="delete-backdrop" role="presentation">
-            <form
-              className="delete-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="create-workspace-title"
-              onSubmit={createWorkspace}
-            >
-              <p className="dialog-kicker">Orbital workspace</p>
-              <h2 id="create-workspace-title">Create your first workspace</h2>
-              <p>
-                Workspaces scope your conversations, people, and future
-                connectors.
-              </p>
-              <input
-                aria-label="Workspace name"
-                value={workspaceName}
-                onChange={(event) => setWorkspaceName(event.target.value)}
-                autoFocus
-              />
-              <div>
+          <DialogShell open labelledBy="create-workspace-title">
+            <OverlayHeader
+              id="create-workspace-title"
+              kicker="Orbital workspace"
+              title="Create your first workspace"
+              subtitle="Workspaces scope your conversations, people, and future connectors."
+              icon={<Building2 size={16} />}
+              onClose={() => setWorkspaceForm(false)}
+              closeLabel="Cancel workspace creation"
+            />
+            <form onSubmit={createWorkspace}>
+              <OverlayBody>
+                <input
+                  aria-label="Workspace name"
+                  value={workspaceName}
+                  onChange={(event) => setWorkspaceName(event.target.value)}
+                  autoFocus
+                />
+              </OverlayBody>
+              <OverlayFooter>
                 <button
                   className="dialog-cancel"
                   type="button"
@@ -1343,9 +1329,9 @@ export function ChatApp({
                 <button className="dialog-primary" type="submit">
                   Create workspace
                 </button>
-              </div>
+              </OverlayFooter>
             </form>
-          </div>
+          </DialogShell>
         )}
         <SkillsDialog open={skillsOpen} skills={skills} importing={importingSkills} onClose={() => setSkillsOpen(false)} onImportAll={() => void importUpstreamSkills()} />
         <MembersDialog open={membersOpen} members={members} onClose={() => setMembersOpen(false)} />
@@ -1444,25 +1430,40 @@ export function ChatApp({
           onCreateObservation={createObservation}
         />
         {projectForm && (
-          <div className="delete-backdrop" role="presentation">
-            <form className="delete-dialog" onSubmit={createProject}>
-              <p className="dialog-kicker">New project</p>
-              <h2>Set the context once</h2>
-              <p>Keep a brief, requirements, and conversations together.</p>
-              <input
-                aria-label="Project name"
-                placeholder="Project name"
-                value={projectName}
-                onChange={(event) => setProjectName(event.target.value)}
-                autoFocus
-              />
-              <textarea
-                aria-label="Project instructions"
-                placeholder="Instructions for Orbital (optional)"
-                value={projectInstructions}
-                onChange={(event) => setProjectInstructions(event.target.value)}
-              />
-              <div>
+          <DialogShell open labelledBy="create-project-title">
+            <OverlayHeader
+              id="create-project-title"
+              kicker="New project"
+              title="Set the context once"
+              subtitle="Keep a brief, requirements, and conversations together."
+              icon={<FolderKanban size={16} />}
+              onClose={() => setProjectForm(false)}
+              closeLabel="Cancel new project"
+            />
+            <form onSubmit={createProject}>
+              <OverlayBody>
+                <label className="overlay-field">
+                  <span>Project name</span>
+                  <input
+                    aria-label="Project name"
+                    placeholder="e.g. Q3 platform migration"
+                    value={projectName}
+                    onChange={(event) => setProjectName(event.target.value)}
+                    autoFocus
+                  />
+                </label>
+                <label className="overlay-field">
+                  <span>Instructions <small>optional</small></span>
+                  <textarea
+                    aria-label="Project instructions"
+                    placeholder="Standing context Orbital applies to every conversation in this project."
+                    value={projectInstructions}
+                    onChange={(event) => setProjectInstructions(event.target.value)}
+                    rows={4}
+                  />
+                </label>
+              </OverlayBody>
+              <OverlayFooter>
                 <button
                   className="dialog-cancel"
                   type="button"
@@ -1473,37 +1474,42 @@ export function ChatApp({
                 <button className="dialog-primary" type="submit">
                   Create project
                 </button>
-              </div>
+              </OverlayFooter>
             </form>
-          </div>
+          </DialogShell>
         )}
         {editingProject && (
-          <div className="delete-backdrop" role="presentation">
-            <section
-              className="delete-dialog project-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="project-settings-title"
-            >
+          <DialogShell open labelledBy="project-settings-title" className="project-dialog">
+            <OverlayHeader
+              id="project-settings-title"
+              kicker="Project settings"
+              title="Context that stays with every chat"
+              subtitle="Applied to every conversation started in this project."
+              icon={<Settings2 size={16} />}
+              onClose={() => setEditingProject(false)}
+              closeLabel="Close project settings"
+            />
+            <OverlayBody>
               <form onSubmit={updateProject}>
-                <p className="dialog-kicker">Project settings</p>
-                <h2 id="project-settings-title">
-                  Context that stays with every chat
-                </h2>
-                <input
-                  aria-label="Project name"
-                  value={projectName}
-                  onChange={(event) => setProjectName(event.target.value)}
-                  autoFocus
-                />
-                <textarea
-                  aria-label="Project instructions"
-                  value={projectInstructions}
-                  onChange={(event) =>
-                    setProjectInstructions(event.target.value)
-                  }
-                />
-                <div>
+                <label className="overlay-field">
+                  <span>Project name</span>
+                  <input
+                    aria-label="Project name"
+                    value={projectName}
+                    onChange={(event) => setProjectName(event.target.value)}
+                    autoFocus
+                  />
+                </label>
+                <label className="overlay-field">
+                  <span>Instructions</span>
+                  <textarea
+                    aria-label="Project instructions"
+                    value={projectInstructions}
+                    onChange={(event) => setProjectInstructions(event.target.value)}
+                    rows={4}
+                  />
+                </label>
+                <div className="overlay-form-actions">
                   <button
                     className="dialog-cancel"
                     type="button"
@@ -1516,6 +1522,7 @@ export function ChatApp({
                   </button>
                 </div>
               </form>
+
               <form className="invite-form" onSubmit={inviteMember}>
                 <p className="dialog-kicker">Invite collaborator</p>
                 <p>Add an existing Orbital user as an editor.</p>
@@ -1532,8 +1539,8 @@ export function ChatApp({
                   </button>
                 </div>
               </form>
-            </section>
-          </div>
+            </OverlayBody>
+          </DialogShell>
         )}
         {error && (
           <div className="error-toast" role="alert">

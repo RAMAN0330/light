@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Braces,
-  ChevronDown,
+  Building2,
   CircleUserRound,
   FileSearch,
   FolderKanban,
@@ -13,20 +13,16 @@ import {
   SearchCode,
   Workflow,
 } from "lucide-react";
-import type { Workspace } from "../api/chat";
-import { Select } from "./ui/field";
 import { fadeUp, staggerChildren, SPRING_SNAPPY } from "../lib/motion";
 
-export type WorkspaceSurface = "overview" | "conversations" | "projects" | "repositories";
+export type WorkspaceSurface = "overview" | "conversations" | "projects" | "repositories" | "workspaces";
 
 type Props = {
-  workspaces: Workspace[];
-  workspaceId: string;
   surface: WorkspaceSurface;
+  workspaceCount: number;
   conversationCount: number;
   projectCount: number;
-  onWorkspaceChange: (id: string) => void;
-  onCreateWorkspace: () => void;
+  onWorkspaces: () => void;
   onOverview: () => void;
   onConversations: () => void;
   onProjects: () => void;
@@ -82,13 +78,11 @@ function NavButton({
 }
 
 export function WorkspaceSidebar({
-  workspaces,
-  workspaceId,
   surface,
+  workspaceCount,
   conversationCount,
   projectCount,
-  onWorkspaceChange,
-  onCreateWorkspace,
+  onWorkspaces,
   onOverview,
   onConversations,
   onProjects,
@@ -103,37 +97,13 @@ export function WorkspaceSidebar({
   return (
     <aside className="workspace-sidebar">
       <div className="workspace-brand">
-        <span className="workspace-brand-mark">
-          <Orbit aria-hidden="true" size={22} strokeWidth={1.8} />
-        </span>
-        <span>
+        <span className="workspace-brand-row">
+          <span className="workspace-brand-mark">
+            <Orbit aria-hidden="true" size={22} strokeWidth={1.8} />
+          </span>
           <strong>Orbital</strong>
-          <small>Enterprise workspace</small>
         </span>
-      </div>
-
-      <div className="workspace-switcher">
-        <label htmlFor="workspace-select">Workspace</label>
-        <span>
-          <Select
-            id="workspace-select"
-            aria-label="Active Orbital workspace"
-            value={workspaceId}
-            onChange={(event) => onWorkspaceChange(event.target.value)}
-            disabled={!workspaces.length}
-          >
-            <option value="">No workspace</option>
-            {workspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))}
-          </Select>
-          <ChevronDown aria-hidden="true" size={15} />
-        </span>
-        <button type="button" onClick={onCreateWorkspace}>
-          Create workspace
-        </button>
+        <small>Enterprise workspace</small>
       </div>
 
       <motion.nav
@@ -145,6 +115,7 @@ export function WorkspaceSidebar({
       >
         <section>
           <p>Workspace</p>
+          <NavButton id="workspaces" icon={<Building2 size={18} />} label="Workspaces" count={workspaceCount} active={surface === "workspaces"} onClick={onWorkspaces} reduceMotion={reduceMotion} />
           <NavButton id="overview" icon={<Gauge size={18} />} label="Overview" active={surface === "overview"} onClick={onOverview} reduceMotion={reduceMotion} />
           <NavButton id="conversations" icon={<MessageSquareText size={18} />} label="Conversations" ariaLabel="Conversations" count={conversationCount} active={surface === "conversations"} onClick={onConversations} reduceMotion={reduceMotion} />
           <NavButton id="projects" icon={<FolderKanban size={18} />} label="Projects" count={projectCount} active={surface === "projects"} onClick={onProjects} reduceMotion={reduceMotion} />

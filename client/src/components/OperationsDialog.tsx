@@ -4,10 +4,10 @@ import type { Notification, WorkspaceNote, WorkspaceSchedule, WorkspaceTask } fr
 import type { CiConnection, CiTriggerResult, PipelineRun } from "../api/cicd";
 import type { InfraAction, InfraConnection, InfraGatewayResult, InfraResourceType } from "../api/infra";
 import { Input, Select, Textarea } from "./ui/field";
-import { Activity, Bell, CalendarDays, CheckSquare, FileText, Plus, X } from "lucide-react";
+import { Activity, Bell, CalendarDays, CheckSquare, FileText, Plus, Workflow, X } from "lucide-react";
 import { PipelineRunsPanel } from "./PipelineRunsPanel";
 import { InfraResourcesPanel } from "./InfraResourcesPanel";
-import { DialogShell } from "./ui/dialog-shell";
+import { DialogShell, OverlayBody, OverlayFooter, OverlayHeader } from "./ui/dialog-shell";
 
 type OperationsDialogProps = {
   open: boolean;
@@ -117,9 +117,17 @@ export function OperationsDialog({
   onPerformInfraAction,
 }: OperationsDialogProps) {
   return (
-    <DialogShell open={open} labelledBy="operations-title" className="operations-dialog">
-      <header className="operations-dialog-header"><div><h2 id="operations-title">Workspace operations</h2><p>Manage your tasks, notes, schedules and updates in one place.</p></div><button type="button" className="operations-close-icon" aria-label="Close operations" onClick={onClose}><X size={24} /></button></header>
-      <div className="operations-stack">
+    <DialogShell open={open} labelledBy="operations-title" className="operations-dialog overlay-wide overlay-tall">
+      <OverlayHeader
+        id="operations-title"
+        kicker="Automations"
+        title="Workspace operations"
+        subtitle="Manage your tasks, notes, schedules and updates in one place."
+        icon={<Workflow size={16} />}
+        onClose={onClose}
+        closeLabel="Close operations"
+      />
+      <OverlayBody className="operations-stack">
         <section className="operation-card operation-card-tasks"><div className="operation-card-copy"><div className="operation-card-heading"><span className="operation-icon"><CheckSquare size={20} /></span><div><h3>Tasks</h3><p>Create and track your tasks.</p></div></div><form onSubmit={onCreateTask}><Input aria-label="Task title" value={taskTitle} onChange={(event) => onTaskTitleChange(event.target.value)} placeholder="What needs to be done?" /><button className="dialog-primary" type="submit"><Plus size={18} /> Add task</button></form>{tasks.map((task) => <article className="operation-row" key={task.id}><strong>{task.title}</strong><Select aria-label={`Status for ${task.title}`} value={task.status} onChange={(event) => onTaskStatusChange(task, event.target.value as WorkspaceTask["status"])}><option value="open">open</option><option value="in_progress">in progress</option><option value="done">done</option><option value="cancelled">cancelled</option></Select></article>)}</div><div className="operation-art art-tasks"><CheckSquare size={74} /></div></section>
         <section className="operation-card operation-card-notes"><div className="operation-card-copy"><div className="operation-card-heading"><span className="operation-icon"><FileText size={20} /></span><div><h3>Notes</h3><p>Capture your thoughts and important details.</p></div></div><form onSubmit={onCreateNote}><Input aria-label="Note title" value={noteTitle} onChange={(event) => onNoteTitleChange(event.target.value)} placeholder="Note title" /><Textarea aria-label="Note content" value={noteContent} onChange={(event) => onNoteContentChange(event.target.value)} placeholder="Write your note here..." /><button className="dialog-primary" type="submit"><Plus size={18} /> Add note</button></form>{notes.map((note) => <article className="operation-row" key={note.id}><strong>{note.title}</strong></article>)}</div><div className="operation-art art-notes"><FileText size={74} /></div></section>
         <section className="operation-card operation-card-notifications"><div className="operation-card-heading"><span className="operation-icon"><Bell size={20} /></span><div><h3>Notifications</h3><p>Stay updated with important alerts.</p></div></div><span className="operation-count">{notifications.filter((item) => !item.read_at).length}</span><span className="operation-chevron">›</span>{notifications.filter((item) => !item.read_at).map((item) => <article className="operation-row" key={item.id}><strong>{item.title}</strong></article>)}</section>
@@ -158,8 +166,8 @@ export function OperationsDialog({
           onViewLogs={onViewInfraLogs}
           onPerformAction={onPerformInfraAction}
         />
-      </div>
-      <footer className="operations-dialog-footer"><button className="dialog-primary" onClick={onClose}>Close <X size={16} /></button></footer>
+      </OverlayBody>
+      <OverlayFooter><button className="dialog-primary" onClick={onClose}>Close <X size={16} /></button></OverlayFooter>
     </DialogShell>
   );
 }

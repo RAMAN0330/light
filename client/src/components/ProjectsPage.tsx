@@ -7,6 +7,7 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   Pencil,
+  Plus,
   Search,
   Settings2,
   Trash2,
@@ -77,16 +78,6 @@ export function ProjectsPage({
   return (
     <div className="projects-page">
       <motion.p className="projects-breadcrumb" initial="hidden" animate="show" variants={fadeUp}>Workspace / Projects</motion.p>
-      <motion.header className="projects-page-header" initial="hidden" animate="show" variants={fadeUp}>
-        <div>
-          <h1>Projects</h1>
-          <p>Keep context, conversations, and reference material together.</p>
-        </div>
-        <button type="button" className="projects-primary-action" onClick={onCreateProject}>
-          <FolderKanban size={16} /> New project
-        </button>
-      </motion.header>
-
       {!projects.length ? (
         <motion.section className="projects-empty-page" initial="hidden" animate="show" variants={scaleIn}>
           <span><FolderKanban size={34} /></span>
@@ -110,7 +101,22 @@ export function ProjectsPage({
 
           <div className="projects-layout">
             <motion.aside className="project-list-panel" aria-label="Projects list" initial="hidden" animate="show" variants={staggerChildren(0.04)}>
-              <div className="project-list-heading"><span>Your projects</span><small>{projects.length}</small></div>
+              <div className="project-list-heading">
+                <span>Your projects</span>
+                <span className="project-list-heading-actions">
+                  <small>{projects.length}</small>
+                  <button
+                    type="button"
+                    className="project-create-pill"
+                    onClick={onCreateProject}
+                    aria-label="New project"
+                    title="New project"
+                  >
+                    <Plus aria-hidden="true" size={15} />
+                    <span className="project-create-pill-label">New project</span>
+                  </button>
+                </span>
+              </div>
               <div className="project-search">
                 <Search size={14} aria-hidden="true" />
                 <input

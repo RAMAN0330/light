@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Database, GitBranch, GitCommit, GitPullRequest, Network, Plus, Shield, Users } from "lucide-react";
+import { ArrowRight, Database, GitBranch, GitCommit, GitPullRequest, Lock, Network, Plus, Search, Shield, Users } from "lucide-react";
 import { EASE_OUT_EXPO, SPRING_SNAPPY } from "../lib/motion";
+import { relativeTime } from "../lib/relativeTime";
 
 import { cicdApi, type CiConnection } from "../api/cicd";
-import { repositoryApi, type Branch, type CommitSummary, type PullRequestSummary, type TreeEntry } from "../api/repositories";
+import { repositoryApi, type Branch, type CommitSummary, type PullRequestSummary, type RepoInfo, type TreeEntry } from "../api/repositories";
 import { buildAnalysis, buildTree, calcBlast, calcHealth, detectIssues, type Connection, type FnDef } from "../features/analysis/services/analysis";
 import { Parser } from "../features/analysis/services/parser";
 import { buildActivityPoints, fetchTrendData, type ActivityPoint, type TrendSnapshot } from "../features/analysis/services/trends";
@@ -69,6 +70,10 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
   const [commits, setCommits] = useState<CommitSummary[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [pullRequests, setPullRequests] = useState<PullRequestSummary[]>([]);
+  const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
+  const [contributorCount, setContributorCount] = useState(0);
+  const [repoSearch, setRepoSearch] = useState("");
+  const [connectOpen, setConnectOpen] = useState(false);
 
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
@@ -100,9 +105,33 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
     if (!connectionId) return;
     setTree([]); setTreeError(""); setSelectedPath(""); setFileContent("");
     setFunctions([]); setConnectionsGraph([]); setAnalyzedFiles([]); setSelectedBlastPath("");
+    setRepoInfo(null); setBranches([]); setPullRequests([]); setCommits([]); setContributorCount(0);
     repositoryApi.repoInfo(accessToken, workspaceId, connectionId).then((result) => {
-      if (result.status === "completed") setBranch(result.data.default_branch);
+      if (result.status === "completed") {
+        setRepoInfo(result.data);
+        setBranch(result.data.default_branch);
+      }
     }).catch(() => {});
+  }, [accessToken, workspaceId, connectionId]);
+
+  // Repository summary: branches, pull requests, contributors and recent
+  // commits load once per connection so the KPI row is populated before any
+  // tab is opened (the per-tab views read the same state).
+  useEffect(() => {
+    if (!connectionId) return;
+    let cancelled = false;
+    void (async () => {
+      const [branchResult, pullResult, contributorResult] = await Promise.all([
+        repositoryApi.branches(accessToken, workspaceId, connectionId).catch(() => null),
+        repositoryApi.pullRequests(accessToken, workspaceId, connectionId).catch(() => null),
+        repositoryApi.contributors(accessToken, workspaceId, connectionId).catch(() => null),
+      ]);
+      if (cancelled) return;
+      if (branchResult?.status === "completed") setBranches(branchResult.data);
+      if (pullResult?.status === "completed") setPullRequests(pullResult.data);
+      if (contributorResult?.status === "completed") setContributorCount(contributorResult.data.length);
+    })();
+    return () => { cancelled = true; };
   }, [accessToken, workspaceId, connectionId]);
 
   const needsTree = tab === "tree" || tab === "ownership" || tab === "contributors" || tab === "security" || tab === "database";
@@ -142,25 +171,11 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
   }, [accessToken, workspaceId, connectionId, branch, tab, tree]);
 
   useEffect(() => {
-    if (!connectionId || tab !== "commits") return;
+    if (!connectionId || !branch) return;
     repositoryApi.commits(accessToken, workspaceId, connectionId, undefined, branch).then((result) => {
       if (result.status === "completed") setCommits(result.data);
     }).catch(() => {});
-  }, [accessToken, workspaceId, connectionId, branch, tab]);
-
-  useEffect(() => {
-    if (!connectionId || tab !== "branches") return;
-    repositoryApi.branches(accessToken, workspaceId, connectionId).then((result) => {
-      if (result.status === "completed") setBranches(result.data);
-    }).catch(() => {});
-  }, [accessToken, workspaceId, connectionId, tab]);
-
-  useEffect(() => {
-    if (!connectionId || tab !== "pulls") return;
-    repositoryApi.pullRequests(accessToken, workspaceId, connectionId).then((result) => {
-      if (result.status === "completed") setPullRequests(result.data);
-    }).catch(() => {});
-  }, [accessToken, workspaceId, connectionId, tab]);
+  }, [accessToken, workspaceId, connectionId, branch]);
 
   async function createConnectionFor(fullName: string) {
     if (!workspaceId || !fullName.trim()) return;
@@ -246,22 +261,20 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
 
   const activeConnection = connections.find((c) => c.id === connectionId);
   const reduceMotion = useReducedMotion();
+  const lastCommit = commits[0];
+  const visibleConnections = connections.filter((connection) =>
+    connection.external_ref.toLowerCase().includes(repoSearch.trim().toLowerCase()),
+  );
+  const repoStats = [
+    { label: "Branches", value: branches.length, icon: <GitBranch size={17} />, tone: "teal" },
+    { label: "Open pull requests", value: pullRequests.length, icon: <GitPullRequest size={17} />, tone: "emerald" },
+    { label: "Contributors", value: contributorCount, icon: <Users size={17} />, tone: "cyan" },
+    { label: "Recent commits", value: commits.length, icon: <GitCommit size={17} />, tone: "teal" },
+  ] as const;
 
   return (
     <div className="repo-workspace">
-      <header className="repo-workspace-head">
-        <div>
-          <h1>Repositories</h1>
-          <p>Browse commits, branches and pull requests, and run Codebase Intelligence over the repository.</p>
-        </div>
-        {connections.length > 0 && (
-          <Select aria-label="Repository connection" value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
-            {connections.map((connection) => (
-              <option key={connection.id} value={connection.id}>{connection.external_ref}</option>
-            ))}
-          </Select>
-        )}
-      </header>
+      <p className="projects-breadcrumb">Workspace / Repositories</p>
 
       {connections.length === 0 ? (
         <div className="repo-connect-empty">
@@ -274,6 +287,76 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
         </div>
       ) : (
         <>
+          <div className="projects-stat-grid" aria-label="Repository summary">
+            {repoStats.map((stat) => (
+              <div className="projects-stat-card" key={stat.label}>
+                <span className={`projects-stat-icon projects-stat-icon-${stat.tone}`}>{stat.icon}</span>
+                <span>
+                  <small>{stat.label}</small>
+                  <strong>{stat.value}</strong>
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="repo-layout">
+            <aside className="project-list-panel" aria-label="Connected repositories">
+              <div className="project-list-heading">
+                <span>Repositories</span>
+                <span className="project-list-heading-actions">
+                  <small>{connections.length}</small>
+                  <button
+                    type="button"
+                    className="project-create-pill"
+                    onClick={() => setConnectOpen(true)}
+                    aria-label="Connect repository"
+                    title="Connect repository"
+                  >
+                    <Plus aria-hidden="true" size={15} />
+                    <span className="project-create-pill-label">Connect repository</span>
+                  </button>
+                </span>
+              </div>
+              <div className="project-search">
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  value={repoSearch}
+                  onChange={(event) => setRepoSearch(event.target.value)}
+                  placeholder="Search repositories…"
+                  aria-label="Search repositories"
+                />
+              </div>
+              {visibleConnections.map((connection) => (
+                <button
+                  type="button"
+                  key={connection.id}
+                  className={connection.id === connectionId ? "project-list-item active" : "project-list-item"}
+                  onClick={() => setConnectionId(connection.id)}
+                >
+                  <span className="project-list-icon"><GitBranch size={16} /></span>
+                  <span><strong>{connection.external_ref}</strong><small>{connection.provider.replace("_", " ")}</small></span>
+                  <ArrowRight size={15} />
+                </button>
+              ))}
+              {!visibleConnections.length && <p className="project-empty">No repository matches that search.</p>}
+            </aside>
+
+            <div className="repo-main">
+              <header className="repo-meta">
+                <div className="repo-meta-title">
+                  <strong>{repoInfo?.full_name || activeConnection?.external_ref || "Repository"}</strong>
+                  {repoInfo?.private ? <span className="repo-meta-badge"><Lock aria-hidden="true" size={11} /> Private</span> : null}
+                  {branch ? <span className="repo-meta-badge"><GitBranch aria-hidden="true" size={11} /> {branch}</span> : null}
+                </div>
+                <p>{repoInfo?.description || "No repository description."}</p>
+                {lastCommit ? (
+                  <small>
+                    Last commit {relativeTime(lastCommit.commit.author.date)} by {lastCommit.commit.author.name} · {lastCommit.sha.slice(0, 7)}
+                  </small>
+                ) : null}
+              </header>
+
           <nav className="repo-tabs">
             {TABS.map((item) => {
               const active = tab === item.id;
@@ -493,7 +576,20 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
             </div>
           )}
           </motion.div>
+            </div>
+          </div>
         </>
+      )}
+
+      {connectOpen && connections.length > 0 && (
+        <div className="repo-connect-inline">
+          <form onSubmit={createConnection} className="repo-connect-form">
+            <Input aria-label="GitHub repository (org/repo)" value={externalRef} onChange={(event) => setExternalRef(event.target.value)} placeholder="org/repo" />
+            <button className="dialog-primary" type="submit"><Plus size={16} /> Connect</button>
+            <button className="dialog-cancel" type="button" onClick={() => setConnectOpen(false)}>Cancel</button>
+          </form>
+          <GitHubRepoPicker accessToken={accessToken} workspaceId={workspaceId} onSelectRepo={(fullName) => { setExternalRef(fullName); void createConnectionFor(fullName); setConnectOpen(false); }} />
+        </div>
       )}
     </div>
   );
