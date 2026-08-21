@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -9,26 +9,23 @@ import {
   CircleAlert,
   Clock3,
   FileSearch,
-  FolderKanban,
-  Library,
   ListChecks,
   Orbit,
   SearchCode,
   ShieldCheck,
-  Sparkles,
   Timer,
   Workflow,
+  GitBranch,
 } from "lucide-react";
 import type {
   ApprovalRequest,
   Artifact,
   Notification,
   Project,
-  Skill,
-  Workspace,
   WorkspaceSchedule,
   WorkspaceTask,
 } from "../api/chat";
+import { repositoryApi } from "../api/repositories";
 import { AnimatedNumber } from "./ui/animated-number";
 import { useLenis } from "../lib/useLenis";
 import { fadeUp, staggerChildren } from "../lib/motion";
@@ -36,20 +33,22 @@ import { fadeUp, staggerChildren } from "../lib/motion";
 type LauncherMode = "query" | "research" | "scrape" | "analyze" | "automate" | "code";
 
 type Props = {
-  workspace?: Workspace;
   tasks: WorkspaceTask[];
   schedules: WorkspaceSchedule[];
   notifications: Notification[];
   activity: { id: string; action: string; resource_type: string }[];
   approvals: ApprovalRequest[];
   artifacts: Artifact[];
-  skills: Skill[];
   projects: Project[];
+  accessToken: string;
+  workspaceId: string;
   onLauncher: (mode: LauncherMode) => void;
   onOperations: () => void;
   onKnowledge: () => void;
   onGovernance: () => void;
   onProjectCreate: () => void;
+  onNavigateToWorkspace: () => void;
+  onNavigateToProjects: () => void;
 };
 
 const capabilities: { mode: LauncherMode; title: string; detail: string; icon: React.ReactNode }[] = [
@@ -60,36 +59,62 @@ const capabilities: { mode: LauncherMode; title: string; detail: string; icon: R
 ];
 
 export function WorkspaceDashboard({
-  workspace,
   tasks,
   schedules,
   notifications,
   activity,
   approvals,
   artifacts,
-  skills,
   projects,
+  accessToken,
+  workspaceId,
   onLauncher,
   onOperations,
   onKnowledge,
   onGovernance,
   onProjectCreate,
+  onNavigateToWorkspace,
+  onNavigateToProjects,
 }: Props) {
   const openTasks = tasks.filter((task) => task.status === "open" || task.status === "in_progress");
   const enabledSchedules = schedules.filter((schedule) => schedule.enabled);
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
   const unreadNotifications = notifications.filter((notification) => !notification.read_at);
-  const workspaceName = workspace?.name || "Your";
+  const connectedProjects = projects.filter((project) => project.repository_connection_id);
 
   const workQueueRef = useRef<HTMLDivElement>(null);
   useLenis(workQueueRef);
+
+  const [latestCommitIssueCount, setLatestCommitIssueCount] = useState(0);
+  useEffect(() => {
+    if (!workspaceId || !connectedProjects.length) { setLatestCommitIssueCount(0); return; }
+    let cancelled = false;
+    void (async () => {
+      const counts = await Promise.all(
+        connectedProjects.map((project) =>
+          repositoryApi
+            .commitAnalyses(accessToken, workspaceId, project.repository_connection_id as string)
+            .then((analyses) => analyses[0]?.issues.length ?? 0)
+            .catch(() => 0),
+        ),
+      );
+      if (!cancelled) setLatestCommitIssueCount(counts.reduce((total, count) => total + count, 0));
+    })();
+    return () => { cancelled = true; };
+  }, [accessToken, workspaceId, connectedProjects.map((project) => project.repository_connection_id).join(",")]);
 
   return (
     <motion.div className="workspace-dashboard" initial="hidden" animate="show" variants={staggerChildren(0.06)}>
       <motion.header className="dashboard-header" variants={fadeUp}>
         <div>
-          <h1>{workspaceName} workspace overview</h1>
-          <p>Monitor governed work, start new operations, and resolve what needs attention.</p>
+          <nav className="dashboard-breadcrumb" aria-label="Breadcrumb">
+            <span className="dashboard-breadcrumb-bar" aria-hidden="true" />
+            <button type="button" onClick={onNavigateToWorkspace}>Workspace</button>
+            <b aria-hidden="true">/</b>
+            <button type="button" onClick={onNavigateToProjects}>Projects</button>
+            <b aria-hidden="true">/</b>
+            <em aria-current="page">Overview</em>
+          </nav>
         </div>
         <div className="workspace-health" aria-label="Workspace status: Operational">
           <span />
@@ -123,22 +148,22 @@ export function WorkspaceDashboard({
 
         <motion.div className="kpi-card" variants={fadeUp}>
           <div className="kpi-card-label">
-            <span className="kpi-icon kpi-icon-cyan"><Library size={15} /></span>
-            <span>Knowledge artifacts</span>
+            <span className="kpi-icon kpi-icon-cyan"><GitBranch size={15} /></span>
+            <span>Connected repositories</span>
           </div>
           <div className="kpi-card-value">
-            <strong><AnimatedNumber value={artifacts.length} /></strong>
+            <strong><AnimatedNumber value={connectedProjects.length} /></strong>
             <small>current</small>
           </div>
         </motion.div>
 
         <motion.div className="kpi-card" variants={fadeUp}>
           <div className="kpi-card-label">
-            <span className="kpi-icon kpi-icon-teal"><Sparkles size={15} /></span>
-            <span>Published skills</span>
+            <span className="kpi-icon kpi-icon-teal"><CircleAlert size={15} /></span>
+            <span>Latest commit issues</span>
           </div>
           <div className="kpi-card-value">
-            <strong><AnimatedNumber value={skills.filter((skill) => skill.status === "published").length} /></strong>
+            <strong><AnimatedNumber value={latestCommitIssueCount} /></strong>
             <small>current</small>
           </div>
         </motion.div>
@@ -251,49 +276,25 @@ export function WorkspaceDashboard({
             </div>
           </section>
 
-          {/* Activity & Projects Dual Split */}
-          <div className="dashboard-context-split">
-            {/* Recent Activity */}
-            <section className="context-card" aria-labelledby="activity-title">
-              <div className="dashboard-section-heading">
-                <div>
-                  <h2 id="activity-title"><Clock3 size={17} /> Recent activity</h2>
+          {/* Recent Activity */}
+          <section className="context-card" aria-labelledby="activity-title">
+            <div className="dashboard-section-heading">
+              <div>
+                <h2 id="activity-title"><Clock3 size={17} /> Recent activity</h2>
+              </div>
+            </div>
+            <div className="plain-list">
+              {activity.length ? activity.slice(0, 3).map((item) => (
+                <div key={item.id} className="activity-row">
+                  <span className="activity-dot" />
+                  <span>
+                    <strong>{item.action}</strong>
+                    <small>{item.resource_type.replace("_", " ")}</small>
+                  </span>
                 </div>
-              </div>
-              <div className="plain-list">
-                {activity.length ? activity.slice(0, 3).map((item) => (
-                  <div key={item.id} className="activity-row">
-                    <span className="activity-dot" />
-                    <span>
-                      <strong>{item.action}</strong>
-                      <small>{item.resource_type.replace("_", " ")}</small>
-                    </span>
-                  </div>
-                )) : <div className="context-empty"><span><Clock3 size={34} /></span><p>No recent activity.</p><small>You're all caught up.</small></div>}
-              </div>
-            </section>
-
-            {/* Projects */}
-            <section className="context-card" aria-labelledby="projects-title">
-              <div className="dashboard-section-heading">
-                <div>
-                  <h2 id="projects-title"><FolderKanban size={17} /> Projects</h2>
-                </div>
-                <button type="button" onClick={onProjectCreate}>+ New</button>
-              </div>
-              <div className="plain-list project-overview-list">
-                {projects.length ? projects.slice(0, 3).map((project) => (
-                  <div key={project.id} className="project-row">
-                    <FolderKanban size={15} className="text-teal-700 shrink-0" />
-                    <span>
-                      <strong>{project.name}</strong>
-                      <small>{project.instructions || "No instructions"}</small>
-                    </span>
-                  </div>
-                )) : <div className="context-empty"><span><FolderKanban size={34} /></span><p>No projects yet.</p><small>Create your first project.</small></div>}
-              </div>
-            </section>
-          </div>
+              )) : <div className="context-empty"><span><Clock3 size={34} /></span><p>No recent activity.</p><small>You're all caught up.</small></div>}
+            </div>
+          </section>
         </motion.div>
       </div>
     </motion.div>

@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { ArrowUpRight, LockKeyhole, Orbit, Sparkles, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { Button } from "./ui/button";
 import { Input } from "./ui/field";
 import { fadeUp, staggerChildren } from "../lib/motion";
 
-export function AuthScreen() {
+export function AuthScreen({ onClose }: { onClose?: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -28,31 +29,25 @@ export function AuthScreen() {
     setSubmitting(false);
   }
 
-  return <main className="auth-page">
-    <section className="auth-intro" aria-hidden="true">
-      <div className="brand-mark">O</div>
-      <div className="auth-intro-copy">
-        <p className="brand-name">Orbital</p>
-        <h1>Governed work, in one workspace.</h1>
-        <p>Automations, research, analysis, and codebase work — every run attributable to a workspace, an actor, and a policy decision.</p>
-      </div>
-      <p className="auth-footnote">Built for teams that must show their work.</p>
-    </section>
-    <section className="auth-card-wrap">
-      <motion.div className="auth-card" initial="hidden" animate="show" variants={staggerChildren(0.06)}>
-        <motion.div className="auth-mobile-brand" variants={fadeUp}><span className="brand-mark">O</span><span>Orbital</span></motion.div>
-        <motion.div className="auth-heading" variants={fadeUp}><h2>Welcome back</h2><p>Sign in to reach your workspace.</p></motion.div>
+  return <div className="auth-overlay" role="presentation" onMouseDown={(event) => { if (onClose && event.target === event.currentTarget) onClose(); }}>
+    <motion.section className="auth-modal auth-card" role="dialog" aria-modal="true" aria-labelledby="auth-title" initial="hidden" animate="show" variants={staggerChildren(0.06)}>
+      {onClose && <button className="auth-close" type="button" aria-label="Close sign in" onClick={onClose}><X size={18} /></button>}
+        <motion.div className="auth-mobile-brand" variants={fadeUp}><span className="auth-orbit-mark"><Orbit size={19} /><Sparkles size={10} /></span><span>Orbital</span></motion.div>
+        <motion.div className="auth-heading" variants={fadeUp}>
+          <span className="auth-security"><LockKeyhole size={13} /> Secure workspace</span>
+          <h2 id="auth-title">Welcome back</h2><p>Sign in to continue where your team left off.</p>
+        </motion.div>
         {error && <p className="error" role="alert">{error}</p>}
         <motion.form variants={fadeUp} onSubmit={(event) => { event.preventDefault(); void submit("signin"); }}>
           <label>Email<Input aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>
           <label>Password<Input aria-label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" autoComplete="current-password" /></label>
-          <Button type="submit" variant="primary" className="primary-action" disabled={submitting}>{submitting ? "Signing in…" : "Sign in"}</Button>
+          <Button type="submit" variant="primary" className="primary-action" disabled={submitting} rightIcon={!submitting ? <ArrowUpRight size={16} /> : undefined}>{submitting ? "Signing in…" : "Sign in"}</Button>
         </motion.form>
+        <motion.div className="auth-divider" variants={fadeUp}><span>or continue with</span></motion.div>
         <motion.div variants={fadeUp}>
-          <Button type="button" variant="secondary" className="primary-action" disabled={submitting} onClick={() => void signInWithSso()}>Continue with SSO</Button>
+          <Button type="button" variant="secondary" className="primary-action auth-sso-action" disabled={submitting} onClick={() => void signInWithSso()}>Continue with SSO</Button>
         </motion.div>
         <motion.p className="auth-switch" variants={fadeUp}>New here? <Button variant="ghost" className="text-button" type="button" disabled={submitting} onClick={() => void submit("signup")}>Create an account</Button></motion.p>
-      </motion.div>
-    </section>
-  </main>;
+    </motion.section>
+  </div>;
 }

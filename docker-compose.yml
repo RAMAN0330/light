@@ -3,9 +3,9 @@ services:
     build: ./gateway
     environment:
       API_URL: http://api:8000
-      GATEWAY_CORS_ORIGINS: ${GATEWAY_CORS_ORIGINS:-http://localhost:8090}
+      GATEWAY_CORS_ORIGINS: ${GATEWAY_CORS_ORIGINS:-http://localhost:8080}
     ports:
-      - "3100:3000"
+      - "3000:3000"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -80,15 +80,35 @@ services:
       timeout: 5s
       retries: 3
 
+  # Runs the poll-based fallbacks in app/workers/ (never invoked by the API
+  # server itself — see each worker's module docstring). Webhooks still cover
+  # the fast path for repos with one registered; this just guarantees every
+  # enabled ci_connection eventually gets synced/analyzed even without one.
+  sync-workers:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file: ./server/.env
+    environment:
+      ORBITAL_CI_SYNC_ENABLED: "true"
+      ORBITAL_COMMIT_ANALYSIS_ENABLED: "true"
+    command: >
+      bash -c "while true; do
+        python -m app.workers.ci_sync;
+        python -m app.workers.commit_analysis_sync;
+        sleep 300;
+      done"
+    restart: unless-stopped
+
   web:
     build:
       context: ./client
       args:
-        VITE_API_URL: http://localhost:3100
+        VITE_API_URL: http://localhost:3000
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
     depends_on:
       gateway:
         condition: service_healthy
     ports:
-      - "8090:80"
+      - "8080:80"

@@ -43,7 +43,7 @@ export function KnowledgeDialog({
   onCreateReport,
 }: KnowledgeDialogProps) {
   return (
-    <DialogShell open={open} labelledBy="knowledge-title" className="overlay-wide">
+    <DialogShell open={open} labelledBy="knowledge-title" className="overlay-wide" onClose={onClose}>
       <OverlayHeader
         id="knowledge-title"
         kicker="Retrieval"

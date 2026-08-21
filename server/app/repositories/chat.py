@@ -36,16 +36,26 @@ class SupabaseChatRepository:
         )
 
     def list_projects(self, user_id: str):
-        return self.client.table("projects").select("id,name,instructions,created_at").eq("user_id", user_id).order("created_at", desc=True).execute().data
+        return self.client.table("projects").select("id,name,instructions,repository_connection_id,created_at").eq("user_id", user_id).order("created_at", desc=True).execute().data
 
-    def create_project(self, user_id: str, name: str, instructions: str):
-        return self.client.table("projects").insert({"user_id": user_id, "name": name, "instructions": instructions}).execute().data[0]
+    def can_access_repository_connection(self, connection_id: str) -> bool:
+        return bool(self.client.table("ci_connections").select("id").eq("id", connection_id).limit(1).execute().data)
+
+    def create_project(self, user_id: str, name: str, instructions: str, repository_connection_id: Optional[str] = None):
+        return self.client.table("projects").insert({"user_id": user_id, "name": name, "instructions": instructions, "repository_connection_id": repository_connection_id}).execute().data[0]
 
     def update_project(self, user_id: str, project_id: str, name: str, instructions: str):
         return self.client.table("projects").update({"name": name, "instructions": instructions}).eq("id", project_id).eq("user_id", user_id).execute().data[0]
 
     def owns_project(self, user_id: str, project_id: str) -> bool:
         return bool(self.client.table("projects").select("id").eq("id", project_id).eq("user_id", user_id).limit(1).execute().data)
+
+    def project(self, user_id: str, project_id: str):
+        data = self.client.table("projects").select("id,name").eq("id", project_id).eq("user_id", user_id).limit(1).execute().data
+        return data[0] if data else None
+
+    def delete_project(self, user_id: str, project_id: str) -> None:
+        self.client.table("projects").delete().eq("id", project_id).eq("user_id", user_id).execute()
 
     def project_instructions(self, conversation_id: str) -> str:
         data = self.client.table("conversations").select("projects(instructions)").eq("id", conversation_id).limit(1).execute().data

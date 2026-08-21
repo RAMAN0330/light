@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { EASE_OUT_EXPO, SPRING_SNAPPY } from "../lib/motion";
+import { useOutsideClick } from "../lib/useOutsideClick";
 
 export type LauncherMode = "query" | "research" | "scrape" | "analyze" | "automate" | "code";
 
@@ -49,6 +50,7 @@ export function OrbitalLauncher({ open, mode, loading, onOpen, onClose, onModeCh
   const [hovered, setHovered] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
@@ -67,11 +69,25 @@ export function OrbitalLauncher({ open, mode, loading, onOpen, onClose, onModeCh
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose, open]);
 
+  useOutsideClick(containerRef, open, onClose);
+
+  useEffect(() => {
+    const toggleOnShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (open) onClose();
+        else onOpen();
+      }
+    };
+    window.addEventListener("keydown", toggleOnShortcut);
+    return () => window.removeEventListener("keydown", toggleOnShortcut);
+  }, [onClose, onOpen, open]);
+
   const copy = modeCopy[mode];
   const expanded = open || hovered;
 
   return (
-    <div className="orbital-launcher right">
+    <div className="orbital-launcher right" ref={containerRef}>
       <AnimatePresence>
         {open && (
           <motion.section
@@ -175,7 +191,7 @@ export function OrbitalLauncher({ open, mode, loading, onOpen, onClose, onModeCh
           transition={{ duration: 0.32, ease: EASE_OUT_EXPO }}
         >
           <strong>Ask Orbital</strong>
-          <small>⌘ J</small>
+          <small>⌘ K</small>
         </motion.span>
       </motion.button>
     </div>

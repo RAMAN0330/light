@@ -12,7 +12,7 @@ type MembersDialogProps = {
 
 export function MembersDialog({ open, members, onClose }: MembersDialogProps) {
   return (
-    <DialogShell open={open} labelledBy="members-title">
+    <DialogShell open={open} labelledBy="members-title" onClose={onClose}>
       <OverlayHeader
         id="members-title"
         kicker="Access"

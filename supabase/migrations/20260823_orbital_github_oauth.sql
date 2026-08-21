@@ -28,3 +28,13 @@ select w.id, 'github_connection.repos.read', 'allow', true, o.created_by
 from public.workspaces w
 join public.organizations o on o.id = w.organization_id
 on conflict (workspace_id, action) do nothing;
+
+-- Authorizing the GitHub external connection itself is allowed by default —
+-- unlike the email/calendar providers this table also covers, linking a
+-- GitHub identity to discover repos carries no inbox/calendar access, so it
+-- doesn't need the same approval gate.
+insert into public.policies (workspace_id, action, decision, enabled, created_by)
+select w.id, 'external_connection.authorize.github', 'allow', true, o.created_by
+from public.workspaces w
+join public.organizations o on o.id = w.organization_id
+on conflict (workspace_id, action) do nothing;

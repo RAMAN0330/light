@@ -112,6 +112,42 @@ def test_lists_only_workspaces_available_to_the_authenticated_user():
     assert requested_users == ["user-1"]
 
 
+def test_workspace_admin_can_invite_an_existing_user_to_this_workspace():
+    invited = []
+    repository = type("Repository", (), {"can_manage_workspace": lambda *_: True})()
+    app = app_with_repository(repository)
+
+    class Memberships:
+        def upsert(self, payload):
+            invited.append(payload)
+            return self
+
+        def execute(self):
+            return self
+
+    app.state.admin_supabase = type(
+        "Admin",
+        (),
+        {
+            "auth": type(
+                "Auth",
+                (),
+                {"admin": type("AdminAuth", (), {"list_users": lambda *_args, **_kwargs: [type("User", (), {"id": "user-2", "email": "teammate@example.com"})()]})()},
+            )(),
+            "table": lambda *_args: Memberships(),
+        },
+    )()
+
+    response = TestClient(app).post(
+        "/workspaces/workspace-1/invites",
+        headers={"Authorization": "Bearer user-token"},
+        json={"email": "teammate@example.com"},
+    )
+
+    assert response.status_code == 204
+    assert invited == [{"workspace_id": "workspace-1", "user_id": "user-2", "role": "member"}]
+
+
 def test_cannot_create_a_conversation_in_an_unavailable_workspace():
     repository = type(
         "Repository",

@@ -80,6 +80,17 @@ create policy "members read ci connections" on public.ci_connections for select 
   )
 );
 
+drop policy if exists "workspace admins create ci connections" on public.ci_connections;
+create policy "workspace admins create ci connections" on public.ci_connections for insert with check (
+  created_by = (select auth.uid()) and exists (
+    select 1 from public.workspaces
+    join public.organization_memberships on organization_memberships.organization_id = workspaces.organization_id
+    where workspaces.id = ci_connections.workspace_id
+      and organization_memberships.user_id = (select auth.uid())
+      and organization_memberships.role in ('owner', 'platform_admin', 'workspace_admin')
+  )
+);
+
 drop policy if exists "members read pipeline runs" on public.pipeline_runs;
 create policy "members read pipeline runs" on public.pipeline_runs for select using (
   exists (
@@ -97,6 +108,17 @@ create policy "members read infra connections" on public.infra_connections for s
     join public.organization_memberships on organization_memberships.organization_id = workspaces.organization_id
     where workspaces.id = infra_connections.workspace_id
       and organization_memberships.user_id = (select auth.uid())
+  )
+);
+
+drop policy if exists "workspace admins create infra connections" on public.infra_connections;
+create policy "workspace admins create infra connections" on public.infra_connections for insert with check (
+  created_by = (select auth.uid()) and exists (
+    select 1 from public.workspaces
+    join public.organization_memberships on organization_memberships.organization_id = workspaces.organization_id
+    where workspaces.id = infra_connections.workspace_id
+      and organization_memberships.user_id = (select auth.uid())
+      and organization_memberships.role in ('owner', 'platform_admin', 'workspace_admin')
   )
 );
 

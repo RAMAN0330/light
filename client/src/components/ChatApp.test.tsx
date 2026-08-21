@@ -34,6 +34,7 @@ const api = {
   async createProject() { return { id: "project-1", name: "Project", instructions: "" }; },
   async updateProject() { return { id: "project-1", name: "Project", instructions: "" }; },
   async inviteProjectMember() {},
+  async inviteWorkspaceMember() {},
   async addProjectDocument() {},
   async listProjectDocuments() { return []; },
   async deleteProjectDocument() {},
@@ -55,50 +56,28 @@ beforeEach(() => {
 });
 
 async function openConversations() {
+  if (!screen.queryByRole("complementary")) {
+    await userEvent.click(await screen.findByRole("button", { name: /Acme/ }));
+  }
   await userEvent.click(await screen.findByRole("button", { name: "Conversations" }));
 }
 
 async function openWorkspaces() {
-  await userEvent.click(await screen.findByRole("button", { name: /Workspaces/ }));
+  await screen.findByRole("heading", { name: /Your workspaces/i });
+}
+
+async function enterWorkspace() {
+  await userEvent.click(await screen.findByRole("button", { name: /Acme/ }));
 }
 
 describe("ChatApp", () => {
-  it("opens on an enterprise workspace overview instead of a chat", async () => {
+  it("opens on an organization picker instead of a workspace dashboard", async () => {
     render(<ChatApp accessToken="token" api={api} />);
 
-    expect(
-      await screen.findByRole("heading", { name: /workspace overview/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Research & scraping" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Automations" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /your workspaces/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Acme/ })).toBeInTheDocument();
+    expect(document.querySelector(".workspace-sidebar")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Message")).not.toBeInTheDocument();
-  });
-
-  it("starts analysis work from the floating Orbital launcher", async () => {
-    const sentModes: string[] = [];
-    const launcherApi = {
-      ...api,
-      async *sendMessage(
-        _token: string,
-        _conversationId: string,
-        _content: string,
-        selectedMode = "ask",
-      ) {
-        sentModes.push(selectedMode);
-        yield "Analysis started";
-      },
-    };
-    render(<ChatApp accessToken="token" api={launcherApi} />);
-
-    await userEvent.click(screen.getByRole("button", { name: "Ask Orbital" }));
-    await userEvent.click(screen.getByRole("button", { name: "Analyze" }));
-    await userEvent.type(screen.getByLabelText("Orbital request"), "Analyze this quarter");
-    await userEvent.click(screen.getByRole("button", { name: "Start analysis" }));
-
-    expect(await screen.findByText("Analysis started")).toBeInTheDocument();
-    expect(sentModes).toEqual(["research"]);
   });
 
   it("shows the authenticated user's active Orbital workspace on the workspaces page", async () => {
@@ -109,13 +88,51 @@ describe("ChatApp", () => {
     expect(await screen.findByRole("button", { name: /Acme/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("reaches workspaces from the sidebar instead of a dropdown", async () => {
+  it("keeps the workspace picker outside the workspace sidebar", async () => {
     render(<ChatApp accessToken="token" api={api} />);
 
-    const sidebar = screen.getByRole("complementary");
-    expect(within(sidebar).queryByRole("combobox", { name: "Active Orbital workspace" })).not.toBeInTheDocument();
-    await userEvent.click(await within(sidebar).findByRole("button", { name: /Workspaces/ }));
-    expect(await screen.findByRole("button", { name: /Create workspace/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Your workspaces/i })).toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New workspace" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ask Orbital" })).not.toBeInTheDocument();
+  });
+
+  it("opens the detailed project screen without a sidebar after selecting a workspace", async () => {
+    render(<ChatApp accessToken="token" api={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Acme/ }));
+
+    expect(await screen.findByRole("heading", { name: /start your first project/i })).toBeInTheDocument();
+    expect(document.querySelector(".workspace-sidebar")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ask Orbital" })).not.toBeInTheDocument();
+  });
+
+  it("offers a repository connection while creating a project", async () => {
+    render(<ChatApp accessToken="token" api={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Acme/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Create project" }));
+
+    expect(screen.getByLabelText("Repository")).toHaveAttribute("placeholder", "owner/repository");
+    expect(screen.getByRole("button", { name: "Verify repository" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Private repository" })).not.toBeChecked();
+    expect(screen.queryByLabelText("GitHub personal access token")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("checkbox", { name: "Private repository" }));
+    expect(screen.getByLabelText("GitHub personal access token")).toHaveAttribute("type", "password");
+  });
+
+  it("adds the expandable workspace navigation to a selected project", async () => {
+    render(<ChatApp accessToken="token" api={{ ...api, listProjects: async () => [{ id: "project-1", name: "Platform", instructions: "Release planning" }] }} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Acme/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open project" }));
+
+    expect(await screen.findByText("Workspace")).toBeInTheDocument();
+    expect(await screen.findByText("Projects")).toBeInTheDocument();
+    expect(await screen.findByText("Overview")).toBeInTheDocument();
+    expect(document.querySelector(".workspace-sidebar")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Keep navigation expanded" })).toBeInTheDocument();
   });
 
   it("places conversation search in the top bar", async () => {
@@ -137,7 +154,7 @@ describe("ChatApp", () => {
     render(<ChatApp accessToken="token" api={{ ...api, listWorkspaces: async () => [], createOrganization }} />);
 
     await openWorkspaces();
-    await userEvent.click(await screen.findByRole("button", { name: /Create workspace/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "New workspace" }));
     await userEvent.type(screen.getByLabelText("Workspace name"), "Acme");
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create workspace" }));
 
@@ -149,7 +166,7 @@ describe("ChatApp", () => {
     render(<ChatApp accessToken="token" api={api} />);
 
     await openWorkspaces();
-    await userEvent.click(await screen.findByRole("button", { name: /Create workspace/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "New workspace" }));
 
     expect(screen.getByLabelText("Workspace name")).toBeInTheDocument();
   });
@@ -158,13 +175,14 @@ describe("ChatApp", () => {
     render(<ChatApp accessToken="token" api={api} />);
 
     await openWorkspaces();
-    await userEvent.click(await screen.findByRole("button", { name: /Create workspace/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "New workspace" }));
 
     expect(screen.getByRole("heading", { name: "Create your first workspace" })).toBeInTheDocument();
   });
 
   it("shows the active workspace's governed skills", async () => {
     render(<ChatApp accessToken="token" api={api} />);
+    await enterWorkspace();
 
     await userEvent.click(await screen.findByRole("button", { name: "Skills" }));
 
@@ -175,6 +193,7 @@ describe("ChatApp", () => {
 
   it("shows policy rules and pending approvals for the active workspace", async () => {
     render(<ChatApp accessToken="token" api={api} />);
+    await enterWorkspace();
     await userEvent.click(await screen.findByRole("button", { name: "Governance" }));
 
     expect(await screen.findByRole("heading", { name: "Workspace governance" })).toBeInTheDocument();
@@ -186,6 +205,7 @@ describe("ChatApp", () => {
     const uploadArtifact = vi.fn().mockResolvedValue({ id: "artifact-2", name: "brief.docx", status: "uploaded" });
     const normalizeArtifact = vi.fn().mockResolvedValue(undefined);
     render(<ChatApp accessToken="token" api={{ ...api, uploadArtifact, normalizeArtifact }} />);
+    await enterWorkspace();
 
     await userEvent.click(await screen.findByRole("button", { name: "Knowledge" }));
     await userEvent.upload(screen.getByLabelText("Upload a document"), new File(["document"], "brief.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
@@ -200,6 +220,43 @@ describe("ChatApp", () => {
     await userEvent.type(await screen.findByLabelText("Message"), "Hello");
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByText("Hi!")).toBeInTheDocument();
+  });
+
+  it("does not show the floating Orbital launcher in conversations", async () => {
+    render(<ChatApp accessToken="token" api={api} />);
+    await openConversations();
+
+    expect(screen.queryByRole("button", { name: "Ask Orbital" })).not.toBeInTheDocument();
+  });
+
+  it("maps command-composer quick actions to the existing response modes", async () => {
+    render(<ChatApp accessToken="token" api={api} />);
+    await openConversations();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Analyze data" }));
+    expect(screen.getByRole("combobox", { name: "Response mode" })).toHaveValue("research");
+
+    await userEvent.click(screen.getByRole("button", { name: "Get insights" }));
+    expect(screen.getByRole("combobox", { name: "Response mode" })).toHaveValue("ask");
+  });
+
+  it("keeps the compact composer free of redundant support copy", async () => {
+    render(<ChatApp accessToken="token" api={api} />);
+    await userEvent.click(await screen.findByRole("button", { name: /Acme/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Conversations" }));
+
+    expect(screen.queryByText("Ask anything or describe what you need assistance with.")).not.toBeInTheDocument();
+  });
+
+  it("renders the composer input without its own visual boundary", async () => {
+    render(<ChatApp accessToken="token" api={api} />);
+    await openConversations();
+
+    expect(await screen.findByLabelText("Message")).toHaveClass(
+      "!border-0",
+      "!bg-transparent",
+      "!shadow-none",
+    );
   });
 
   it("renders the first assistant chunk before the stream completes", async () => {

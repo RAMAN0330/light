@@ -10,7 +10,7 @@ type InfraLogsViewerProps = {
 
 export function InfraLogsViewer({ open, title, output, onClose }: InfraLogsViewerProps) {
   return (
-    <DialogShell open={open} labelledBy="infra-logs-title" className="infra-logs-dialog">
+    <DialogShell open={open} labelledBy="infra-logs-title" className="infra-logs-dialog" onClose={onClose}>
       <OverlayHeader
         id="infra-logs-title"
         kicker="Logs"

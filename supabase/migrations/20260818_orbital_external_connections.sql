@@ -28,6 +28,30 @@ create policy "members read workspace external connections" on public.external_c
     )
   );
 
+drop policy if exists "workspace admins create external connections" on public.external_connections;
+create policy "workspace admins create external connections" on public.external_connections
+  for insert with check (
+    created_by = (select auth.uid()) and exists (
+      select 1 from public.workspaces
+      join public.organization_memberships on organization_memberships.organization_id = workspaces.organization_id
+      where workspaces.id = external_connections.workspace_id
+        and organization_memberships.user_id = (select auth.uid())
+        and organization_memberships.role in ('owner', 'platform_admin', 'workspace_admin')
+    )
+  );
+
+drop policy if exists "workspace admins revoke external connections" on public.external_connections;
+create policy "workspace admins revoke external connections" on public.external_connections
+  for update using (
+    exists (
+      select 1 from public.workspaces
+      join public.organization_memberships on organization_memberships.organization_id = workspaces.organization_id
+      where workspaces.id = external_connections.workspace_id
+        and organization_memberships.user_id = (select auth.uid())
+        and organization_memberships.role in ('owner', 'platform_admin', 'workspace_admin')
+    )
+  );
+
 create or replace function public.audit_external_connection_changed()
 returns trigger
 language plpgsql

@@ -12,7 +12,7 @@ type SkillsDialogProps = {
 
 export function SkillsDialog({ open, skills, importing, onClose, onImportAll }: SkillsDialogProps) {
   return (
-    <DialogShell open={open} labelledBy="skills-title">
+    <DialogShell open={open} labelledBy="skills-title" onClose={onClose}>
       <OverlayHeader
         id="skills-title"
         kicker="Governed processes"

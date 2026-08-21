@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "layout-transition",
+        "value": "max-width",
+        "files": [
+          "client/src/index.css"
+        ],
+        "createdAt": "2026-08-20T17:53:39.908Z",
+        "reason": "pre-existing intentional hover-expand pill on a 30px icon, not part of current task; negligible layout impact"
+      }
+    ]
+  }
+}

@@ -18,6 +18,10 @@ class ConversationRenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
 
 
+class DeleteConfirmationRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
 class OrganizationRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
@@ -195,6 +199,7 @@ class DbConnectionCreate(BaseModel):
 class ProjectRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     instructions: str = Field(default="", max_length=4000)
+    repository_connection_id: Optional[str] = None
 
 class ProjectDocumentRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)

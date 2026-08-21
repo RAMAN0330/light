@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 const upstream = process.env.API_URL || "http://api:8000";
 const port = Number(process.env.PORT || 3000);
-const allowedOrigins = new Set((process.env.GATEWAY_CORS_ORIGINS || "http://localhost:5173,http://localhost:8090").split(","));
+const allowedOrigins = new Set((process.env.GATEWAY_CORS_ORIGINS || "http://localhost:5173,http://localhost:8080").split(","));
 
 function setCors(request: IncomingMessage, response: ServerResponse) {
   const origin = request.headers.origin;

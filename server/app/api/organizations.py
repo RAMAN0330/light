@@ -20,6 +20,7 @@ from app.services.ci_gateway import CiGateway
 from app.services.db_gateway import DbGateway
 from app.services.db_gateway import _safe_host as safe_db_host
 from app.services.ci_ingestion import ingest_github_webhook_event, verify_github_webhook_signature
+from app.services.commit_analysis import ingest_github_push_event, token_for_connection
 from app.services.github_gateway import GitHubGateway
 from app.services.infra_gateway import InfraGateway, InfraGatewayError
 from app.services.knowledge import artifact_storage_key, convert_document, normalize_text, search_chunks
@@ -49,6 +50,7 @@ from app.models.chat import (
     ApprovalRequestCreate,
     ConnectorCreate,
     ConnectorEnabledUpdate,
+    DeleteConfirmationRequest,
     CustomRoleCreate,
     CustomRoleAssignment,
     OrganizationMemberRoleRequest,
@@ -57,6 +59,7 @@ from app.models.chat import (
     ProviderCredentialCreate,
     PolicyDecisionRequest,
     PolicyCreate,
+    ProjectInviteRequest,
     SkillCreate,
     SkillStatusUpdate,
 )
@@ -156,6 +159,35 @@ def list_workspaces(
 ):
     user_id = current_user(request, authorization)
     return organization_repository(request, authorization).list_workspaces(user_id)
+
+@router.delete("/workspaces/{workspace_id}", status_code=204)
+def delete_workspace(workspace_id: str, body: DeleteConfirmationRequest, request: Request, authorization: Optional[str] = Header(default=None)):
+    user_id = current_user(request, authorization)
+    repository = organization_repository(request, authorization)
+    workspace = repository.workspace(workspace_id)
+    if not workspace or not repository.can_manage_workspace(user_id, workspace_id): raise HTTPException(status_code=404, detail="Workspace not found")
+    if body.name != workspace["name"]: raise HTTPException(status_code=400, detail="Workspace name does not match")
+    repository.delete_workspace(workspace_id)
+
+
+@router.post("/workspaces/{workspace_id}/invites", status_code=204)
+def invite_workspace_member(
+    workspace_id: str,
+    body: ProjectInviteRequest,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    user_id = current_user(request, authorization)
+    repository = organization_repository(request, authorization)
+    if not repository.can_manage_workspace(user_id, workspace_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    admin = getattr(request.app.state, "admin_supabase", None)
+    if not admin:
+        raise HTTPException(status_code=503, detail="Invitations are not configured")
+    user = next((item for item in admin.auth.admin.list_users(page=1, per_page=1000) if item.email and item.email.lower() == body.email.lower()), None)
+    if not user:
+        raise HTTPException(status_code=404, detail="Ask this person to create an account first")
+    admin.table("workspace_memberships").upsert({"workspace_id": workspace_id, "user_id": user.id, "role": "member"}).execute()
 
 
 @router.get("/organizations/{organization_id}/audit-events")
@@ -722,7 +754,7 @@ def create_external_connection(workspace_id: str, body: ExternalConnectionCreate
     allowed_scopes = EXTERNAL_CONNECTION_SCOPES[body.provider]
     if not set(body.scopes).issubset(allowed_scopes):
         raise HTTPException(status_code=422, detail="Requested scopes are not allowed for this provider")
-    decision = repository.policy_decision(workspace_id, "external_connection.authorize")
+    decision = repository.policy_decision(workspace_id, f"external_connection.authorize.{body.provider}")
     if decision == "deny":
         raise HTTPException(status_code=403, detail="External connection authorization is denied by policy")
     if decision == "require_approval":
@@ -837,13 +869,26 @@ def list_ci_connections(workspace_id: str, request: Request, authorization: Opti
     return repository.list_ci_connections(workspace_id)
 
 
+def _normalize_repo_ref(external_ref: str) -> str:
+    """Accepts either "owner/repo" or a full GitHub URL and returns "owner/repo"."""
+    ref = external_ref.strip()
+    if ref.startswith("http://") or ref.startswith("https://"):
+        ref = urlparse(ref).path
+    ref = ref.removeprefix("git@github.com:")
+    ref = ref.strip("/")
+    if ref.endswith(".git"):
+        ref = ref[: -len(".git")]
+    return ref
+
+
 @router.post("/workspaces/{workspace_id}/ci-connections", status_code=201)
 def create_ci_connection(workspace_id: str, body: CiConnectionCreate, request: Request, authorization: Optional[str] = Header(default=None)):
     user_id = current_user(request, authorization)
     repository = organization_repository(request, authorization)
     if not repository.can_manage_workspace(user_id, workspace_id):
         raise HTTPException(status_code=404, detail="Workspace not found")
-    return repository.create_ci_connection(user_id, workspace_id, body.provider, body.external_ref, body.manifest)
+    external_ref = _normalize_repo_ref(body.external_ref)
+    return repository.create_ci_connection(user_id, workspace_id, body.provider, external_ref, body.manifest)
 
 
 @router.post("/workspaces/{workspace_id}/ci-connections/{connection_id}/webhook", status_code=204)
@@ -858,7 +903,16 @@ async def receive_ci_webhook(workspace_id: str, connection_id: str, request: Req
     connection = admin_repository.ci_connection(connection_id)
     if not connection or connection["workspace_id"] != workspace_id or not connection["enabled"]:
         raise HTTPException(status_code=404, detail="CI connection not found")
-    ingest_github_webhook_event(admin_repository, connection, json.loads(body))
+    payload = json.loads(body)
+    event = request.headers.get("X-GitHub-Event")
+    if event == "push":
+        token = token_for_connection(
+            request.app.state.admin_supabase, getattr(request.app.state, "credential_cipher", None), connection_id, settings.github_poll_token
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await ingest_github_push_event(admin_repository, connection, payload, token, settings.github_api_url, client)
+    else:
+        ingest_github_webhook_event(admin_repository, connection, payload)
 
 
 @router.get("/workspaces/{workspace_id}/pipeline-runs")
@@ -868,6 +922,14 @@ def list_pipeline_runs(workspace_id: str, request: Request, authorization: Optio
     if not repository.owns_workspace(user_id, workspace_id):
         raise HTTPException(status_code=404, detail="Workspace not found")
     return repository.list_pipeline_runs(workspace_id)
+
+
+@router.get("/workspaces/{workspace_id}/repositories/{connection_id}/commit-analyses")
+def list_commit_analyses(workspace_id: str, connection_id: str, request: Request, authorization: Optional[str] = Header(default=None)):
+    user_id = current_user(request, authorization)
+    repository = organization_repository(request, authorization)
+    _repo_connection_or_404(repository, user_id, workspace_id, connection_id)
+    return repository.list_commit_analyses(workspace_id, connection_id)
 
 
 @router.get("/workspaces/{workspace_id}/infra-connections")

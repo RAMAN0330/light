@@ -32,25 +32,33 @@ class SupabaseOrganizationRepository:
             .data
         )
         roles = {membership["organization_id"]: membership["role"] for membership in memberships}
-        if not roles:
-            return []
-        workspaces = (
+        organization_workspaces = (
             self.client.table("workspaces")
             .select("id,name,organization_id")
-            .in_("organization_id", list(roles))
+            .in_("organization_id", list(roles) or ["00000000-0000-0000-0000-000000000000"])
             .order("created_at")
             .execute()
             .data
         )
+        direct_workspace_ids = [membership["workspace_id"] for membership in self.client.table("workspace_memberships").select("workspace_id").eq("user_id", user_id).execute().data]
+        direct_workspaces = self.client.table("workspaces").select("id,name,organization_id").in_("id", direct_workspace_ids or ["00000000-0000-0000-0000-000000000000"]).order("created_at").execute().data
+        workspaces = {workspace["id"]: workspace for workspace in [*organization_workspaces, *direct_workspaces]}.values()
         return [
             {
                 "id": workspace["id"],
                 "name": workspace["name"],
-                "role": roles[workspace["organization_id"]],
+                "role": roles.get(workspace["organization_id"], "member"),
                 "organization_id": workspace["organization_id"],
             }
             for workspace in workspaces
         ]
+
+    def workspace(self, workspace_id: str):
+        data = self.client.table("workspaces").select("id,name").eq("id", workspace_id).limit(1).execute().data
+        return data[0] if data else None
+
+    def delete_workspace(self, workspace_id: str) -> None:
+        self.client.table("workspaces").delete().eq("id", workspace_id).execute()
 
     def create_custom_role(self, user_id: str, organization_id: str, name: str, permissions: list[str]):
         return (
@@ -117,6 +125,38 @@ class SupabaseOrganizationRepository:
             .data
         )
         return built_in or "organization.manage" in self.custom_permissions(user_id, organization_id)
+
+    def owns_workspace(self, user_id: str, workspace_id: str) -> bool:
+        workspace = (
+            self.client.table("workspaces")
+            .select("organization_id")
+            .eq("id", workspace_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if not workspace:
+            return False
+        is_org_member = bool(
+            self.client.table("organization_memberships")
+            .select("organization_id")
+            .eq("organization_id", workspace[0]["organization_id"])
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if is_org_member:
+            return True
+        return bool(
+            self.client.table("workspace_memberships")
+            .select("workspace_id")
+            .eq("workspace_id", workspace_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+            .data
+        )
 
     def can_manage_workspace(self, user_id: str, workspace_id: str) -> bool:
         workspace = (
@@ -548,7 +588,11 @@ class SupabaseOrganizationRepository:
                     "provider": provider,
                     "external_ref": external_ref,
                     "manifest": manifest,
-                    "enabled": False,
+                    # Connecting a repo is itself the opt-in — there is no
+                    # separate enable step in the UI, so this must default to
+                    # true or the connection is invisible to both the CI-run
+                    # poller and the commit-analysis poller/webhook.
+                    "enabled": True,
                     "created_by": user_id,
                 }
             )
@@ -615,6 +659,51 @@ class SupabaseOrganizationRepository:
                 },
                 on_conflict="ci_connection_id,external_run_id",
             )
+            .execute()
+            .data
+        )
+
+    def analyzed_commit_shas(self, ci_connection_id, shas):
+        if not shas:
+            return set()
+        rows = (
+            self.client.table("commit_analyses")
+            .select("commit_sha")
+            .eq("ci_connection_id", ci_connection_id)
+            .in_("commit_sha", shas)
+            .execute()
+            .data
+        )
+        return {row["commit_sha"] for row in rows}
+
+    def upsert_commit_analysis(self, workspace_id, ci_connection_id, commit_sha, branch, result):
+        return (
+            self.client.table("commit_analyses")
+            .upsert(
+                {
+                    "workspace_id": workspace_id,
+                    "ci_connection_id": ci_connection_id,
+                    "commit_sha": commit_sha,
+                    "branch": branch,
+                    "health_score": result["health_score"],
+                    "grade": result["grade"],
+                    "issues": result["issues"],
+                    "stats": result["stats"],
+                },
+                on_conflict="ci_connection_id,commit_sha",
+            )
+            .execute()
+            .data
+        )
+
+    def list_commit_analyses(self, workspace_id, ci_connection_id, limit=50):
+        return (
+            self.client.table("commit_analyses")
+            .select("id,commit_sha,branch,health_score,grade,issues,stats,created_at")
+            .eq("workspace_id", workspace_id)
+            .eq("ci_connection_id", ci_connection_id)
+            .order("created_at", desc=True)
+            .limit(limit)
             .execute()
             .data
         )

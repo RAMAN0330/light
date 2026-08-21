@@ -11,6 +11,16 @@ export type Branch = { name: string; commit: { sha: string } };
 export type PullRequestSummary = { number: number; title: string; user: { login: string }; html_url: string; state: string };
 export type PullRequestDetail = PullRequestSummary & { files: { filename: string; additions: number; deletions: number }[]; additions: number; deletions: number };
 export type Contributor = { login: string; avatar_url: string; contributions: number };
+export type CommitAnalysis = {
+  id: string;
+  commit_sha: string;
+  branch: string | null;
+  health_score: number;
+  grade: "A" | "B" | "C" | "D" | "F";
+  issues: { title: string; detail: string }[];
+  stats: { files: number; functions: number; connections: number };
+  created_at: string;
+};
 export type Tag = { name: string; commit: { sha: string } };
 
 const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -51,6 +61,9 @@ export const repositoryApi = {
   },
   async tags(token: string, workspaceId: string, connectionId: string, limit = 10): Promise<GatedResult<Tag[]>> {
     return (await request(token, `/workspaces/${workspaceId}/repositories/${connectionId}/tags?limit=${limit}`)).json();
+  },
+  async commitAnalyses(token: string, workspaceId: string, connectionId: string): Promise<CommitAnalysis[]> {
+    return (await request(token, `/workspaces/${workspaceId}/repositories/${connectionId}/commit-analyses`)).json();
   },
   async compare(token: string, workspaceId: string, connectionId: string, base: string, head: string): Promise<GatedResult<{ files: { filename: string; patch?: string }[]; commits: unknown[] }>> {
     return (await request(token, `/workspaces/${workspaceId}/repositories/${connectionId}/compare?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`)).json();

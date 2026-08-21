@@ -7,14 +7,16 @@ type DialogShellProps = {
   open: boolean;
   labelledBy: string;
   className?: string;
+  onClose?: () => void;
 };
 
 /**
  * Shared backdrop + panel for Orbital's modal dialogs. The panel itself owns
  * no padding: compose it from OverlayHeader / OverlayBody / OverlayFooter so
  * every dialog gets the same sticky header, scrolling body and action row.
+ * Clicking the backdrop (outside the panel) collapses the dialog via onClose.
  */
-export function DialogShell({ open, labelledBy, className = "", children }: PropsWithChildren<DialogShellProps>) {
+export function DialogShell({ open, labelledBy, className = "", onClose, children }: PropsWithChildren<DialogShellProps>) {
   const reduceMotion = useReducedMotion();
   return (
     <AnimatePresence>
@@ -22,6 +24,9 @@ export function DialogShell({ open, labelledBy, className = "", children }: Prop
         <motion.div
           className="delete-backdrop"
           role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) onClose?.();
+          }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

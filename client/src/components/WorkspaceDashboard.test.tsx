@@ -10,13 +10,16 @@ const dashboardProps = {
   activity: [],
   approvals: [],
   artifacts: [],
-  skills: [],
   projects: [],
+  accessToken: "token",
+  workspaceId: "workspace-1",
   onLauncher: vi.fn(),
   onOperations: vi.fn(),
   onKnowledge: vi.fn(),
   onGovernance: vi.fn(),
   onProjectCreate: vi.fn(),
+  onNavigateToWorkspace: vi.fn(),
+  onNavigateToProjects: vi.fn(),
 };
 
 describe("WorkspaceDashboard", () => {
@@ -26,7 +29,7 @@ describe("WorkspaceDashboard", () => {
     const summary = screen.getByLabelText("Workspace summary");
     expect(summary.textContent).toMatch(/Active tasks\s*0/);
     expect(summary.textContent).toMatch(/Enabled schedules\s*0/);
-    expect(summary.textContent).toMatch(/Knowledge artifacts\s*0/);
-    expect(summary.textContent).toMatch(/Published skills\s*0/);
+    expect(summary.textContent).toMatch(/Connected repositories\s*0/);
+    expect(summary.textContent).toMatch(/Latest commit issues\s*0/);
   });
 });

@@ -22,6 +22,7 @@ import {
 } from "../api/chat";
 import { cicdApi, type CiConnection, type CiTriggerResult, type PipelineRun } from "../api/cicd";
 import { infraApi, type InfraAction, type InfraConnection, type InfraGatewayResult, type InfraResourceType } from "../api/infra";
+import { repositoryApi } from "../api/repositories";
 import { AssistantMessage } from "./AssistantMessage";
 import { GovernanceDialog } from "./GovernanceDialog";
 import { InfraLogsViewer } from "./InfraLogsViewer";
@@ -65,7 +66,7 @@ import {
   X,
 } from "lucide-react";
 
-type Api = typeof chatApi;
+type Api = Omit<typeof chatApi, "deleteProject" | "deleteWorkspace"> & Partial<Pick<typeof chatApi, "deleteProject" | "deleteWorkspace">>;
 type ConversationState = {
   messages: Message[];
   loading: boolean;
@@ -87,12 +88,20 @@ const searchPrompts = [
   "Look up a conversation",
 ];
 
+function capitalizeName(value: string) {
+  return value.replace(/(^|[\s-])(\p{L})/gu, (_match, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase()}`);
+}
+
 export function ChatApp({
   accessToken,
   api = chatApi,
+  onNavigateHome,
+  onSignOut,
 }: {
   accessToken: string;
   api?: Api;
+  onNavigateHome?: () => void;
+  onSignOut?: () => void;
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -154,16 +163,31 @@ export function ChatApp({
   const [editingProject, setEditingProject] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectInstructions, setProjectInstructions] = useState("");
+  const [projectRepositoryId, setProjectRepositoryId] = useState("");
+  const [projectRepositories, setProjectRepositories] = useState<CiConnection[]>([]);
+  const [projectRepositoryRef, setProjectRepositoryRef] = useState("");
+  const [projectRepositoryVerified, setProjectRepositoryVerified] = useState(false);
+  const [projectRepositoryVerifying, setProjectRepositoryVerifying] = useState(false);
+  const [projectRepositoryMessage, setProjectRepositoryMessage] = useState("");
+  const [projectRepositoryPrivate, setProjectRepositoryPrivate] = useState(false);
+  const [projectRepositoryToken, setProjectRepositoryToken] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
+  const [workspaceInviteEmail, setWorkspaceInviteEmail] = useState("");
   const [conversationId, setConversationId] = useState("");
   const [conversationStates, setConversationStates] = useState<Record<string, ConversationState>>({});
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [deleteId, setDeleteId] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "project" | "workspace"; id: string; name: string } | null>(null);
+  const [deleteConfirmationName, setDeleteConfirmationName] = useState("");
   const [search, setSearch] = useState("");
   const [renameTitle, setRenameTitle] = useState("");
   const [mode, setMode] = useState<ChatMode>("ask");
-  const [surface, setSurface] = useState<WorkspaceSurface>("overview");
+  const [surface, setSurface] = useState<WorkspaceSurface>(() => {
+    const stored = localStorage.getItem("orbital-surface");
+    const validSurfaces: WorkspaceSurface[] = ["overview", "conversations", "projects", "repositories", "workspaces", "project-picker"];
+    return validSurfaces.includes(stored as WorkspaceSurface) ? (stored as WorkspaceSurface) : "workspaces";
+  });
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [launcherMode, setLauncherMode] = useState<LauncherMode>("query");
   const [copied, setCopied] = useState(-1);
@@ -175,6 +199,7 @@ export function ChatApp({
   const [deletingSearchPrompt, setDeletingSearchPrompt] = useState(false);
   const [searchPromptIndex, setSearchPromptIndex] = useState(0);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerModeRef = useRef<HTMLSelectElement>(null);
   const activeConversation = conversationStates[conversationId];
   const messages = activeConversation?.messages || [];
   const loading = activeConversation?.loading || false;
@@ -183,6 +208,9 @@ export function ChatApp({
   useEffect(() => {
     void loadConversations();
   }, []);
+  useEffect(() => {
+    localStorage.setItem("orbital-surface", surface);
+  }, [surface]);
   useEffect(() => {
     api
       .listWorkspaces(accessToken)
@@ -346,6 +374,23 @@ export function ChatApp({
     } catch {
       setError("Could not create your workspace.");
     }
+  }
+  async function deleteNamedTarget() {
+    if (!deleteTarget || deleteConfirmationName !== deleteTarget.name) return;
+    try {
+      if (deleteTarget.type === "project") {
+        if (!api.deleteProject) throw new Error("Project deletion is unavailable.");
+        await api.deleteProject(accessToken, deleteTarget.id, deleteTarget.name);
+        const remaining = projects.filter((project) => project.id !== deleteTarget.id);
+        setProjects(remaining); setProjectId(remaining[0]?.id || ""); setSurface(remaining.length ? "project-picker" : "projects");
+      } else {
+        if (!api.deleteWorkspace) throw new Error("Workspace deletion is unavailable.");
+        await api.deleteWorkspace(accessToken, deleteTarget.id, deleteTarget.name);
+        const remaining = workspaces.filter((workspace) => workspace.id !== deleteTarget.id);
+        setWorkspaces(remaining); setWorkspaceId(remaining[0]?.id || ""); setSurface("workspaces");
+      }
+      setDeleteTarget(null); setDeleteConfirmationName("");
+    } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : "Could not delete this item."); }
   }
   async function openSkills() {
     if (!workspaceId) return;
@@ -569,17 +614,26 @@ export function ChatApp({
   async function createProject(event: React.FormEvent) {
     event.preventDefault();
     if (!projectName.trim()) return;
+    const repositoryConnectionId = projectRepositoryId;
+    if (!repositoryConnectionId || !projectRepositoryVerified) {
+      setError("Verify a repository before creating this project.");
+      return;
+    }
     try {
       const project = await api.createProject(
         accessToken,
         projectName.trim(),
         projectInstructions.trim(),
+        repositoryConnectionId || undefined,
       );
       setProjects((items) => [project, ...items]);
       setProjectId(project.id);
       setProjectForm(false);
       setProjectName("");
       setProjectInstructions("");
+      setProjectRepositoryId("");
+      setProjectRepositoryPrivate(false);
+      setProjectRepositoryToken("");
     } catch {
       setError("Could not create this project.");
     }
@@ -609,6 +663,55 @@ export function ChatApp({
     setProjectInstructions(project.instructions);
     setEditingProject(true);
   }
+  function openProjectForm() {
+    setProjectRepositoryId("");
+    setProjectRepositoryRef("");
+    setProjectRepositoryVerified(false);
+    setProjectRepositoryVerifying(false);
+    setProjectRepositoryMessage("");
+    setProjectRepositoryPrivate(false);
+    setProjectRepositoryToken("");
+    setProjectForm(true);
+    if (workspaceId) {
+      cicdApi.listCiConnections(accessToken, workspaceId).then(setProjectRepositories).catch(() => setProjectRepositories([]));
+    }
+  }
+  async function verifyProjectRepository() {
+    const externalRef = projectRepositoryRef.trim();
+    if (!workspaceId || !/^[^/\s]+\/[^/\s]+$/.test(externalRef)) {
+      setProjectRepositoryMessage("Enter the repository as owner/repository.");
+      return;
+    }
+    if (projectRepositoryPrivate && !projectRepositoryToken.trim()) {
+      setProjectRepositoryMessage("Enter a PAT to verify a private repository.");
+      return;
+    }
+    setProjectRepositoryVerifying(true);
+    setProjectRepositoryMessage("");
+    try {
+      let connection = projectRepositories.find((item) => item.external_ref.toLowerCase() === externalRef.toLowerCase());
+      if (!connection) {
+        connection = await cicdApi.createCiConnection(accessToken, workspaceId, externalRef);
+        setProjectRepositories((items) => [connection!, ...items]);
+      }
+      if (projectRepositoryPrivate) await cicdApi.registerCiCredential(accessToken, workspaceId, connection.id, projectRepositoryToken.trim());
+      const result = await repositoryApi.repoInfo(accessToken, workspaceId, connection.id);
+      if (result.status !== "completed") {
+        setProjectRepositoryVerified(false);
+        setProjectRepositoryMessage("reason" in result ? result.reason : "error" in result ? result.error : "Repository verification could not be completed.");
+        return;
+      }
+      setProjectRepositoryId(connection.id);
+      setProjectRepositoryRef(result.data.full_name);
+      setProjectRepositoryVerified(true);
+      setProjectRepositoryMessage(`Verified ${result.data.full_name}`);
+    } catch {
+      setProjectRepositoryVerified(false);
+      setProjectRepositoryMessage("Could not verify this repository. Check its name and access.");
+    } finally {
+      setProjectRepositoryVerifying(false);
+    }
+  }
   async function inviteMember(event: React.FormEvent) {
     event.preventDefault();
     if (!projectId || !inviteEmail.trim()) return;
@@ -619,6 +722,16 @@ export function ChatApp({
       setError(
         "Could not invite this person. They must already have an account.",
       );
+    }
+  }
+  async function inviteWorkspaceMember(event: React.FormEvent) {
+    event.preventDefault();
+    if (!workspaceId || !workspaceInviteEmail.trim()) return;
+    try {
+      await api.inviteWorkspaceMember(accessToken, workspaceId, workspaceInviteEmail.trim());
+      setWorkspaceInviteEmail("");
+    } catch {
+      setError("Could not invite this person to the workspace. They must already have an account.");
     }
   }
   async function uploadProjectDocument(
@@ -938,6 +1051,7 @@ export function ChatApp({
           ref={composerRef}
           id="message"
           aria-label="Message"
+          className="!border-0 !bg-transparent !shadow-none focus:!border-0 focus:!ring-0"
           maxLength={4000}
           value={text}
           onChange={resizeComposer}
@@ -954,6 +1068,7 @@ export function ChatApp({
           <label className="composer-mode">
             <Sparkles aria-hidden="true" size={16} strokeWidth={1.9} />
             <Select
+              ref={composerModeRef}
               aria-label="Response mode"
               value={mode}
               onChange={(event) => setMode(event.target.value as ChatMode)}
@@ -963,77 +1078,130 @@ export function ChatApp({
               <option value="create">Create</option>
             </Select>
           </label>
-          <span className="composer-count">{text.length}/4000</span>
-          {loading && activeRunId && (
-            <Button
-              type="button"
-              variant="secondary"
-              className="cancel-run"
-              onClick={() => void cancelActiveRun()}
-            >
-              Cancel run
-            </Button>
-          )}
-          <Button
-            type="submit"
-            variant="primary"
-            className="send-button"
-            aria-label="Send"
-            title="Send message"
-            disabled={loading || !conversationId}
-          >
-            {loading ? (
-              <span className="send-loading" />
-            ) : (
-              <SendHorizontal aria-hidden="true" size={20} strokeWidth={2.1} />
+          <div className="composer-quick-actions" aria-label="Suggested actions">
+            <button type="button" className="composer-quick-action" onClick={() => setMode("ask")}>
+              <Sparkles aria-hidden="true" size={17} strokeWidth={1.9} />
+              Get insights
+            </button>
+            <button type="button" className="composer-quick-action" onClick={() => setMode("research")}>
+              <Search aria-hidden="true" size={17} strokeWidth={1.9} />
+              Analyze data
+            </button>
+            <button type="button" className="composer-quick-action" onClick={() => setMode("ask")}>
+              <PenLine aria-hidden="true" size={17} strokeWidth={1.9} />
+              Summarize
+            </button>
+            <button type="button" className="composer-quick-action" onClick={() => composerModeRef.current?.focus()}>
+              <Settings2 aria-hidden="true" size={17} strokeWidth={1.9} />
+              More
+            </button>
+          </div>
+          <div className="composer-actions">
+            <span className="composer-count">{text.length}/4000</span>
+            {loading && activeRunId && (
+              <Button
+                type="button"
+                variant="secondary"
+                className="cancel-run"
+                onClick={() => void cancelActiveRun()}
+              >
+                Cancel run
+              </Button>
             )}
-          </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              className="send-button"
+              aria-label="Send"
+              title="Send message"
+              disabled={loading || !conversationId}
+            >
+              {loading ? (
+                <span className="send-loading" />
+              ) : (
+                <SendHorizontal aria-hidden="true" size={24} strokeWidth={2.1} />
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </form>
   );
 
   return (
-    <main className={surface === "overview" ? "workspace-shell overview-active" : surface === "projects" ? "workspace-shell projects-active" : surface === "repositories" ? "workspace-shell repositories-active" : surface === "workspaces" ? "workspace-shell workspaces-active" : "workspace-shell conversations-active"}>
-      <WorkspaceSidebar
-        surface={surface}
-        workspaceCount={workspaces.length}
-        conversationCount={conversations.length}
-        projectCount={projects.length}
-        onWorkspaces={() => setSurface("workspaces")}
-        onOverview={() => setSurface("overview")}
-        onConversations={() => setSurface("conversations")}
-        onProjects={() => { if (!projectId && projects[0]) setProjectId(projects[0].id); setSurface("projects"); }}
-        onRepositories={() => setSurface("repositories")}
-        onNewConversation={() => void newConversation()}
-        onOperations={() => void openOperations()}
-        onKnowledge={() => void openKnowledge()}
-        onLauncher={openLauncher}
-      />
-      <section className={surface === "conversations" ? "chat-panel" : "workspace-panel"}>
+    <main className={surface === "workspaces" || surface === "project-picker" ? "organization-shell" : surface === "overview" ? "workspace-shell overview-active" : surface === "projects" ? "workspace-shell projects-active" : surface === "repositories" ? "workspace-shell repositories-active" : "workspace-shell conversations-active"}>
+      {surface !== "workspaces" && surface !== "project-picker" && (
+        <WorkspaceSidebar
+          surface={surface}
+          conversationCount={conversations.length}
+          projectCount={projects.length}
+          onOverview={() => setSurface("overview")}
+          onConversations={() => setSurface("conversations")}
+          onProjects={() => setSurface("project-picker")}
+          onRepositories={() => setSurface("repositories")}
+          onOperations={() => void openOperations()}
+          onKnowledge={() => void openKnowledge()}
+          onLauncher={openLauncher}
+          onNavigateHome={onNavigateHome}
+          onSignOut={onSignOut}
+        />
+      )}
+      <section className={surface === "workspaces" || surface === "project-picker" ? "organization-panel" : surface === "conversations" ? "chat-panel" : "workspace-panel"}>
         {surface === "workspaces" ? (
           <WorkspacesPage
             workspaces={workspaces}
             workspaceId={workspaceId}
-            onSelectWorkspace={setWorkspaceId}
+            members={members}
+            workspaceInviteEmail={workspaceInviteEmail}
+            onSelectWorkspace={(id) => {
+              setWorkspaceId(id);
+            }}
+            onOpenWorkspace={(id) => { setWorkspaceId(id); setSurface("project-picker"); }}
             onCreateWorkspace={() => setWorkspaceForm(true)}
+            onWorkspaceInviteEmailChange={setWorkspaceInviteEmail}
+            onInviteWorkspaceMember={inviteWorkspaceMember}
+            onManageMembers={() => setMembersOpen(true)}
+            onSignOut={onSignOut}
+            onDeleteWorkspace={(workspace) => { setDeleteTarget({ type: "workspace", id: workspace.id, name: workspace.name }); setDeleteConfirmationName(""); }}
+          />
+        ) : surface === "project-picker" ? (
+          <ProjectsPage
+            projects={projects}
+            selectedProjectId={projectId}
+            conversations={conversations}
+            documents={documents}
+            artifacts={artifacts}
+            members={members}
+            onSelectProject={setProjectId}
+            onCreateProject={openProjectForm}
+            onEditProject={openProjectSettings}
+            onInviteMember={inviteMember}
+            onInviteEmailChange={setInviteEmail}
+            inviteEmail={inviteEmail}
+            onManageMembers={() => setMembersOpen(true)}
+            onNavigateToWorkspace={() => setSurface("workspaces")}
+            onSignOut={onSignOut}
+            onDeleteProject={(project) => { setDeleteTarget({ type: "project", id: project.id, name: project.name }); setDeleteConfirmationName(""); }}
+            onOpenProject={(id) => { setProjectId(id); setSurface("overview"); }}
           />
         ) : surface === "overview" ? (
           <WorkspaceDashboard
-            workspace={workspaces.find((workspace) => workspace.id === workspaceId)}
             tasks={tasks}
             schedules={schedules}
             notifications={notifications}
             activity={activity}
             approvals={approvalRequests}
             artifacts={artifacts}
-            skills={skills}
             projects={projects}
+            accessToken={accessToken}
+            workspaceId={workspaceId}
             onLauncher={openLauncher}
             onOperations={() => void openOperations()}
             onKnowledge={() => void openKnowledge()}
             onGovernance={() => void openGovernance()}
-            onProjectCreate={() => setProjectForm(true)}
+            onProjectCreate={openProjectForm}
+            onNavigateToWorkspace={() => setSurface("workspaces")}
+            onNavigateToProjects={() => setSurface("project-picker")}
           />
         ) : surface === "projects" ? (
           <ProjectsPage
@@ -1044,20 +1212,20 @@ export function ChatApp({
             artifacts={artifacts}
             members={members}
             onSelectProject={setProjectId}
-            onCreateProject={() => setProjectForm(true)}
-            onNewConversation={() => void newConversation(projectId || projects[0]?.id || "")}
+            onCreateProject={openProjectForm}
             onEditProject={openProjectSettings}
             onInviteMember={inviteMember}
             onInviteEmailChange={setInviteEmail}
             inviteEmail={inviteEmail}
-            onUploadDocument={uploadProjectDocument}
-            onDeleteDocument={(id) => void deleteProjectDocument(id)}
-            onViewAllConversations={() => setSurface("conversations")}
             onManageMembers={() => setMembersOpen(true)}
+            onNavigateToWorkspace={() => setSurface("workspaces")}
+            onSignOut={onSignOut}
+            onDeleteProject={(project) => { setDeleteTarget({ type: "project", id: project.id, name: project.name }); setDeleteConfirmationName(""); }}
+            onOpenProject={(id) => { setProjectId(id); setSurface("overview"); }}
           />
         ) : surface === "repositories" ? (
           <Suspense fallback={<div className="repo-workspace-loading">Loading repository tools…</div>}>
-            <RepositoryWorkspace accessToken={accessToken} workspaceId={workspaceId} />
+            <RepositoryWorkspace accessToken={accessToken} workspaceId={workspaceId} onNavigateToWorkspace={() => setSurface("overview")} />
           </Suspense>
         ) : (
           <>
@@ -1263,7 +1431,7 @@ export function ChatApp({
         )}
           </>
         )}
-        <DialogShell open={Boolean(deleteId)} labelledBy="delete-title" className="legacy-dialog">
+        <DialogShell open={Boolean(deleteId)} labelledBy="delete-title" className="legacy-dialog" onClose={() => setDeleteId("")}>
           <p className="dialog-kicker">Remove session</p>
           <h2 id="delete-title">Delete this conversation?</h2>
           <p>This will permanently remove the conversation and its messages.</p>
@@ -1276,8 +1444,19 @@ export function ChatApp({
             </Button>
           </div>
         </DialogShell>
+        <DialogShell open={Boolean(deleteTarget)} labelledBy="delete-resource-title" className="delete-resource-dialog" onClose={() => { setDeleteTarget(null); setDeleteConfirmationName(""); }}>
+          <OverlayHeader id="delete-resource-title" kicker="Permanent action" title={`Delete ${deleteTarget?.type || "item"}?`} subtitle={`This will permanently remove ${deleteTarget?.name || "this item"} and its associated data.`} icon={<Trash2 size={16} />} onClose={() => { setDeleteTarget(null); setDeleteConfirmationName(""); }} closeLabel="Cancel deletion" />
+          <OverlayBody>
+            <p className="delete-resource-warning">Type <strong>{deleteTarget?.name}</strong> to confirm.</p>
+            <input aria-label={`Confirm ${deleteTarget?.type || "item"} name`} value={deleteConfirmationName} onChange={(event) => setDeleteConfirmationName(event.target.value)} autoFocus />
+          </OverlayBody>
+          <OverlayFooter>
+            <button className="dialog-cancel" type="button" onClick={() => { setDeleteTarget(null); setDeleteConfirmationName(""); }}>Cancel</button>
+            <button className="dialog-delete" type="button" disabled={!deleteTarget || deleteConfirmationName !== deleteTarget.name} onClick={() => void deleteNamedTarget()}>Delete {deleteTarget?.type || "item"}</button>
+          </OverlayFooter>
+        </DialogShell>
         {renameTitle && (
-          <DialogShell open labelledBy="rename-title" className="legacy-dialog">
+          <DialogShell open labelledBy="rename-title" className="legacy-dialog" onClose={() => setRenameTitle("")}>
             <p className="dialog-kicker">Rename session</p>
             <h2 id="rename-title">Give this conversation a clear name</h2>
             <form onSubmit={renameConversation}>
@@ -1299,7 +1478,7 @@ export function ChatApp({
           </DialogShell>
         )}
         {workspaceForm && (
-          <DialogShell open labelledBy="create-workspace-title">
+          <DialogShell open labelledBy="create-workspace-title" onClose={() => setWorkspaceForm(false)}>
             <OverlayHeader
               id="create-workspace-title"
               kicker="Orbital workspace"
@@ -1314,7 +1493,7 @@ export function ChatApp({
                 <input
                   aria-label="Workspace name"
                   value={workspaceName}
-                  onChange={(event) => setWorkspaceName(event.target.value)}
+                  onChange={(event) => setWorkspaceName(capitalizeName(event.target.value))}
                   autoFocus
                 />
               </OverlayBody>
@@ -1430,7 +1609,7 @@ export function ChatApp({
           onCreateObservation={createObservation}
         />
         {projectForm && (
-          <DialogShell open labelledBy="create-project-title">
+          <DialogShell open labelledBy="create-project-title" className="project-create-dialog" onClose={() => setProjectForm(false)}>
             <OverlayHeader
               id="create-project-title"
               kicker="New project"
@@ -1448,7 +1627,7 @@ export function ChatApp({
                     aria-label="Project name"
                     placeholder="e.g. Q3 platform migration"
                     value={projectName}
-                    onChange={(event) => setProjectName(event.target.value)}
+                    onChange={(event) => setProjectName(capitalizeName(event.target.value))}
                     autoFocus
                   />
                 </label>
@@ -1462,6 +1641,44 @@ export function ChatApp({
                     rows={4}
                   />
                 </label>
+                <label className="overlay-field">
+                  <span>Connect repository</span>
+                  <Input
+                    aria-label="Repository"
+                    placeholder="owner/repository"
+                    value={projectRepositoryRef}
+                    onChange={(event) => { setProjectRepositoryRef(event.target.value); setProjectRepositoryVerified(false); setProjectRepositoryMessage(""); }}
+                    required
+                  />
+                  <small className="overlay-field-hint">Enter the GitHub repository you want this project to use.</small>
+                </label>
+                <label className="project-visibility-toggle">
+                  <input
+                    aria-label="Private repository"
+                    type="checkbox"
+                    checked={projectRepositoryPrivate}
+                    onChange={(event) => { setProjectRepositoryPrivate(event.target.checked); setProjectRepositoryVerified(false); setProjectRepositoryMessage(""); }}
+                  />
+                  <span><strong>Private repository</strong><small>Require a PAT to access this repository.</small></span>
+                </label>
+                {projectRepositoryPrivate ? (
+                  <label className="overlay-field">
+                    <span>GitHub personal access token</span>
+                    <input
+                      aria-label="GitHub personal access token"
+                      type="password"
+                      autoComplete="off"
+                      placeholder="github_pat_…"
+                      value={projectRepositoryToken}
+                      onChange={(event) => { setProjectRepositoryToken(event.target.value); setProjectRepositoryVerified(false); setProjectRepositoryMessage(""); }}
+                      required
+                    />
+                  </label>
+                ) : null}
+                <div className="project-repository-actions">
+                  <button className="dialog-cancel project-repository-connect" type="button" onClick={() => void verifyProjectRepository()} disabled={projectRepositoryVerifying || !projectRepositoryRef.trim()}>{projectRepositoryVerifying ? "Verifying…" : "Verify repository"}</button>
+                  {projectRepositoryMessage ? <p className={projectRepositoryVerified ? "project-repository-status is-verified" : "project-repository-status"}>{projectRepositoryMessage}</p> : null}
+                </div>
               </OverlayBody>
               <OverlayFooter>
                 <button
@@ -1479,7 +1696,7 @@ export function ChatApp({
           </DialogShell>
         )}
         {editingProject && (
-          <DialogShell open labelledBy="project-settings-title" className="project-dialog">
+          <DialogShell open labelledBy="project-settings-title" className="project-dialog" onClose={() => setEditingProject(false)}>
             <OverlayHeader
               id="project-settings-title"
               kicker="Project settings"
@@ -1496,7 +1713,7 @@ export function ChatApp({
                   <input
                     aria-label="Project name"
                     value={projectName}
-                    onChange={(event) => setProjectName(event.target.value)}
+                    onChange={(event) => setProjectName(capitalizeName(event.target.value))}
                     autoFocus
                   />
                 </label>
@@ -1550,15 +1767,17 @@ export function ChatApp({
         )}
         {surface === "conversations" && messages.length > 0 && composer}
       </section>
-      <OrbitalLauncher
-        open={launcherOpen}
-        mode={launcherMode}
-        loading={loading}
-        onOpen={() => openLauncher("query")}
-        onClose={() => setLauncherOpen(false)}
-        onModeChange={setLauncherMode}
-        onSubmit={(prompt, selectedMode) => submitPrompt(prompt, launcherChatMode(selectedMode))}
-      />
+      {!['conversations', 'workspaces', 'project-picker', 'projects'].includes(surface) && (
+        <OrbitalLauncher
+          open={launcherOpen}
+          mode={launcherMode}
+          loading={loading}
+          onOpen={() => openLauncher("query")}
+          onClose={() => setLauncherOpen(false)}
+          onModeChange={setLauncherMode}
+          onSubmit={(prompt, selectedMode) => submitPrompt(prompt, launcherChatMode(selectedMode))}
+        />
+      )}
     </main>
   );
 }

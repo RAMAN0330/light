@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from app.models.chat import ChatRequest, ConversationRenameRequest, ConversationRequest, ProjectDocumentRequest, ProjectInviteRequest, ProjectMemberRoleRequest, ProjectRequest
+from app.models.chat import ChatRequest, ConversationRenameRequest, ConversationRequest, DeleteConfirmationRequest, ProjectDocumentRequest, ProjectInviteRequest, ProjectMemberRoleRequest, ProjectRequest
 from app.services.chat import ChatService
 from app.services.tool_calling import ToolGateway
 from app.core.config import settings
@@ -82,13 +82,24 @@ def list_projects(request: Request, authorization: Optional[str] = Header(defaul
 @router.post("/projects")
 def create_project(body: ProjectRequest, request: Request, authorization: Optional[str] = Header(default=None)):
     user_id = current_user(request, authorization)
-    return user_repository(request, authorization).create_project(user_id, body.name, body.instructions)
+    repository = user_repository(request, authorization)
+    if body.repository_connection_id and not repository.can_access_repository_connection(body.repository_connection_id):
+        raise HTTPException(status_code=404, detail="Repository connection not found")
+    return repository.create_project(user_id, body.name, body.instructions, body.repository_connection_id)
 
 @router.patch("/projects/{project_id}")
 def update_project(project_id: str, body: ProjectRequest, request: Request, authorization: Optional[str] = Header(default=None)):
     user_id = current_user(request, authorization); repository = user_repository(request, authorization)
     if not repository.owns_project(user_id, project_id): raise HTTPException(status_code=404, detail="Project not found")
     return repository.update_project(user_id, project_id, body.name, body.instructions)
+
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: str, body: DeleteConfirmationRequest, request: Request, authorization: Optional[str] = Header(default=None)):
+    user_id = current_user(request, authorization); repository = user_repository(request, authorization)
+    project = repository.project(user_id, project_id)
+    if not project: raise HTTPException(status_code=404, detail="Project not found")
+    if body.name != project["name"]: raise HTTPException(status_code=400, detail="Project name does not match")
+    repository.delete_project(user_id, project_id)
 
 @router.post("/projects/{project_id}/invites", status_code=204)
 def invite_project_member(project_id: str, body: ProjectInviteRequest, request: Request, authorization: Optional[str] = Header(default=None)):

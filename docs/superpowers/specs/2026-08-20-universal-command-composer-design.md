@@ -20,6 +20,7 @@ The same component appears below every conversation. It retains its placement in
 - The panel has a white-to-soft-neutral surface, 2 px pale-teal border, large rounded corners, and a restrained soft shadow.
 - Heading text is dark green-black, support text is muted blue-green, and teal is reserved for the Orbital mark, mode treatment, and send action.
 - The textarea initially provides a comfortable two-line writing area, grows to its existing maximum height, and preserves keyboard behavior: Enter sends and modified Enter adds a line break.
+- The textarea itself has no visible border, inset outline, or box shadow in its resting state; the surrounding composer surface supplies the visual boundary. Keyboard focus remains visibly indicated with the existing accessible focus outline.
 - The send control remains disabled for an empty prompt or while a request is in flight, with accessible labels and a visible focus treatment.
 - Mode selection remains a native accessible select. The character count is readable but secondary.
 - Quick-action chips are buttons with concise labels and icons. They support pointer and keyboard use, and have hover, focus, and active affordances.

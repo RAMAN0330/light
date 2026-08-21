@@ -23,7 +23,7 @@ export function GovernanceDialog({ open, policies, approvalRequests, adapterMess
   const pendingRequests = approvalRequests.filter((item) => item.status === "pending");
 
   return (
-    <DialogShell open={open} labelledBy="governance-title" className="governance-dialog overlay-wide">
+    <DialogShell open={open} labelledBy="governance-title" className="governance-dialog overlay-wide" onClose={onClose}>
       <OverlayHeader
         id="governance-title"
         kicker="Policy"

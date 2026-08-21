@@ -19,6 +19,7 @@ class Settings:
     orbital_infra_agent_url: str = os.getenv("ORBITAL_INFRA_AGENT_URL", "")
     orbital_infra_agent_token: str = os.getenv("ORBITAL_INFRA_AGENT_TOKEN", "")
     orbital_ci_sync_enabled: bool = os.getenv("ORBITAL_CI_SYNC_ENABLED", "false").lower() == "true"
+    orbital_commit_analysis_enabled: bool = os.getenv("ORBITAL_COMMIT_ANALYSIS_ENABLED", "false").lower() == "true"
     github_api_url: str = os.getenv("GITHUB_API_URL", "https://api.github.com")
     github_webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
     # Deployment-wide PAT used only for the phase-1 read-only poll fallback.
@@ -31,7 +32,7 @@ class Settings:
     github_oauth_redirect_uri: str = os.getenv("GITHUB_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/github/callback")
     orbital_cors_origins: tuple[str, ...] = tuple(
         origin.strip()
-        for origin in os.getenv("ORBITAL_CORS_ORIGINS", "http://localhost:5173").split(",")
+        for origin in os.getenv("ORBITAL_CORS_ORIGINS", "http://localhost:5173,http://localhost:8080").split(",")
         if origin.strip()
     )
     openrouter_model: str = os.getenv(

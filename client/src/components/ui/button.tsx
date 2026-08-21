@@ -12,15 +12,15 @@ export type ButtonSize = "sm" | "md" | "lg";
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    "border-teal-600 bg-teal-600 text-white shadow-sm hover:bg-teal-700 hover:border-teal-700 hover:shadow-md active:translate-y-[1px] focus-visible:outline-teal-500/30",
+    "border-[#61afef] bg-[#61afef] text-[#1e2227] shadow-sm hover:bg-[#79b8ff] hover:border-[#79b8ff] hover:shadow-md active:translate-y-[1px] focus-visible:outline-[#61afef]/30",
   secondary:
-    "border-[#d3e3e0] bg-white text-[#13312d] shadow-sm hover:border-teal-400/60 hover:bg-[#f2f8f7] hover:text-teal-800 active:translate-y-[1px] focus-visible:outline-teal-500/30",
+    "border-[#4b5263] bg-[#2c313a] text-[#e6e9ef] shadow-sm hover:border-[#61afef]/60 hover:bg-[#353b45] hover:text-[#e6efff] active:translate-y-[1px] focus-visible:outline-[#61afef]/30",
   "teal-subtle":
-    "border-teal-500/20 bg-teal-50 text-teal-800 hover:bg-teal-100 hover:border-teal-400 active:translate-y-[1px] focus-visible:outline-teal-500/30",
+    "border-[#61afef]/25 bg-[#323842] text-[#c8d5ff] hover:bg-[#3e4451] hover:border-[#79b8ff] active:translate-y-[1px] focus-visible:outline-[#61afef]/30",
   outline:
-    "border-[#c7dcd8] bg-transparent text-[#1f3f3a] hover:bg-teal-50/60 hover:border-teal-500 hover:text-teal-800 active:translate-y-[1px] focus-visible:outline-teal-500/30",
+    "border-[#4b5263] bg-transparent text-[#c8ccd4] hover:bg-[#323842] hover:border-[#61afef] hover:text-[#e6efff] active:translate-y-[1px] focus-visible:outline-[#61afef]/30",
   ghost:
-    "border-transparent bg-transparent text-[#44635e] hover:bg-[#ebf4f2] hover:text-teal-800 active:translate-y-[1px] focus-visible:outline-teal-500/30",
+    "border-transparent bg-transparent text-[#abb2bf] hover:bg-[#353b45] hover:text-[#e6efff] active:translate-y-[1px] focus-visible:outline-[#61afef]/30",
   destructive:
     "border-rose-600 bg-rose-600 text-white shadow-sm hover:bg-rose-700 active:translate-y-[1px] focus-visible:outline-rose-500/30",
 };

@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, Database, GitBranch, GitCommit, GitPullRequest, Lock, Network, Plus, Search, Shield, Users } from "lucide-react";
+import { Database, GitBranch, GitCommit, GitPullRequest, Lock, Network, Shield, Users } from "lucide-react";
 import { EASE_OUT_EXPO, SPRING_SNAPPY } from "../lib/motion";
 import { relativeTime } from "../lib/relativeTime";
 
 import { cicdApi, type CiConnection } from "../api/cicd";
-import { repositoryApi, type Branch, type CommitSummary, type PullRequestSummary, type RepoInfo, type TreeEntry } from "../api/repositories";
+import { repositoryApi, type Branch, type CommitAnalysis, type CommitSummary, type PullRequestSummary, type RepoInfo, type TreeEntry } from "../api/repositories";
 import { buildAnalysis, buildTree, calcBlast, calcHealth, detectIssues, type Connection, type FnDef } from "../features/analysis/services/analysis";
 import { Parser } from "../features/analysis/services/parser";
 import { buildActivityPoints, fetchTrendData, type ActivityPoint, type TrendSnapshot } from "../features/analysis/services/trends";
@@ -20,8 +20,8 @@ import { extractManifestDependencies } from "../features/security/services/manif
 import { scanDependencies, type VulnResult } from "../features/security/services/osv";
 import ExportModal from "../features/export/components/ExportModal";
 import { VirtualizedRepoTree } from "../shared/components/VirtualizedRepoTree";
-import { GitHubRepoPicker } from "./GitHubRepoPicker";
-import { Input, Select } from "./ui/field";
+import { Select } from "./ui/field";
+import { WorkspaceBreadcrumb } from "./ui/workspace-breadcrumb";
 
 // Lazy-loaded: DatabaseSchemaPanel pulls in reactflow, TrendsPanel pulls in
 // d3 — both only needed once someone opens that specific tab. Splits them
@@ -50,6 +50,37 @@ const MANIFEST_NAMES = new Set(["package.json", "requirements.txt", "go.mod", "G
 
 const MAX_ANALYZED_FILES = 60;
 
+type AnalysisStepId = "tree" | "files" | "graph" | "issues";
+
+const ANALYSIS_STEPS: { id: AnalysisStepId; label: string }[] = [
+  { id: "tree", label: "Fetching repository tree" },
+  { id: "files", label: "Reading source files" },
+  { id: "graph", label: "Building the dependency graph" },
+  { id: "issues", label: "Detecting issues & scoring health" },
+];
+
+function AnalysisLoader({ step, repoLabel }: { step: AnalysisStepId; repoLabel: string }) {
+  const activeIndex = ANALYSIS_STEPS.findIndex((s) => s.id === step);
+  return (
+    <div className="repo-analysis-loader" role="status" aria-label={`Analyzing ${repoLabel}`}>
+      <div className="repo-analysis-loader-orbit">
+        <Network size={22} className="repo-analysis-loader-orbit-icon" />
+      </div>
+      <ol className="repo-analysis-loader-steps">
+        {ANALYSIS_STEPS.map((s, index) => (
+          <li
+            key={s.id}
+            className={index < activeIndex ? "is-done" : index === activeIndex ? "is-active" : "is-pending"}
+          >
+            <span className="repo-analysis-loader-node" aria-hidden="true" />
+            {s.label}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function gatedMessage(status: string, reason?: string): string {
   if (status === "denied") return reason || "Workspace policy denied this action.";
   if (status === "approval_required") return "This requires workspace approval — check the Approval inbox.";
@@ -57,10 +88,9 @@ function gatedMessage(status: string, reason?: string): string {
   return "Unavailable.";
 }
 
-export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken: string; workspaceId: string }) {
+export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWorkspace }: { accessToken: string; workspaceId: string; onNavigateToWorkspace: () => void }) {
   const [connections, setConnections] = useState<CiConnection[]>([]);
   const [connectionId, setConnectionId] = useState("");
-  const [externalRef, setExternalRef] = useState("");
   const [branch, setBranch] = useState("");
   const [tab, setTab] = useState<Tab>("tree");
   const [tree, setTree] = useState<TreeEntry[]>([]);
@@ -70,12 +100,12 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
   const [commits, setCommits] = useState<CommitSummary[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [pullRequests, setPullRequests] = useState<PullRequestSummary[]>([]);
+  const [commitAnalyses, setCommitAnalyses] = useState<CommitAnalysis[]>([]);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [contributorCount, setContributorCount] = useState(0);
-  const [repoSearch, setRepoSearch] = useState("");
-  const [connectOpen, setConnectOpen] = useState(false);
 
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState<AnalysisStepId | null>(null);
   const [analysisError, setAnalysisError] = useState("");
   const [functions, setFunctions] = useState<FnDef[]>([]);
   const [connectionsGraph, setConnectionsGraph] = useState<Connection[]>([]);
@@ -105,7 +135,7 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
     if (!connectionId) return;
     setTree([]); setTreeError(""); setSelectedPath(""); setFileContent("");
     setFunctions([]); setConnectionsGraph([]); setAnalyzedFiles([]); setSelectedBlastPath("");
-    setRepoInfo(null); setBranches([]); setPullRequests([]); setCommits([]); setContributorCount(0);
+    setRepoInfo(null); setBranches([]); setPullRequests([]); setCommits([]); setContributorCount(0); setCommitAnalyses([]);
     repositoryApi.repoInfo(accessToken, workspaceId, connectionId).then((result) => {
       if (result.status === "completed") {
         setRepoInfo(result.data);
@@ -132,6 +162,14 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
       if (contributorResult?.status === "completed") setContributorCount(contributorResult.data.length);
     })();
     return () => { cancelled = true; };
+  }, [accessToken, workspaceId, connectionId]);
+
+  // Per-commit health history from the server-side analysis poller/webhook
+  // (app/services/commit_analysis.py) — independent of the on-demand,
+  // browser-computed analysis below in the intelligence tab.
+  useEffect(() => {
+    if (!connectionId) return;
+    repositoryApi.commitAnalyses(accessToken, workspaceId, connectionId).then(setCommitAnalyses).catch(() => {});
   }, [accessToken, workspaceId, connectionId]);
 
   const needsTree = tab === "tree" || tab === "ownership" || tab === "contributors" || tab === "security" || tab === "database";
@@ -177,19 +215,6 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
     }).catch(() => {});
   }, [accessToken, workspaceId, connectionId, branch]);
 
-  async function createConnectionFor(fullName: string) {
-    if (!workspaceId || !fullName.trim()) return;
-    const connection = await cicdApi.createCiConnection(accessToken, workspaceId, fullName.trim());
-    setConnections((items) => [connection, ...items]);
-    setConnectionId((current) => current || connection.id);
-    setExternalRef("");
-  }
-
-  async function createConnection(event: React.FormEvent) {
-    event.preventDefault();
-    await createConnectionFor(externalRef);
-  }
-
   async function openFile(path: string) {
     setSelectedPath(path);
     setFileContent("Loading…");
@@ -219,6 +244,7 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
     setAnalyzing(true);
     setAnalysisError("");
     try {
+      setAnalysisStep("tree");
       const treeResult = tree.length ? { status: "completed" as const, data: { tree } } : await repositoryApi.tree(accessToken, workspaceId, connectionId, branch);
       if (treeResult.status !== "completed") {
         setAnalysisError(gatedMessage(treeResult.status, "reason" in treeResult ? treeResult.reason : undefined));
@@ -227,6 +253,7 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
       const candidates = treeResult.data.tree
         .filter((entry) => entry.type === "blob" && Parser.isCode(entry.path))
         .slice(0, MAX_ANALYZED_FILES);
+      setAnalysisStep("files");
       const files = await Promise.all(
         candidates.map(async (entry) => {
           const name = entry.path.includes("/") ? entry.path.slice(entry.path.lastIndexOf("/") + 1) : entry.path;
@@ -235,7 +262,9 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
           return { path: entry.path, name, folder, content: contentResult.status === "completed" ? contentResult.data : undefined };
         }),
       );
+      setAnalysisStep("graph");
       const { functions: fns, connections: conns } = buildAnalysis(files);
+      setAnalysisStep("issues");
       setFunctions(fns);
       setConnectionsGraph(conns);
       setAnalyzedFiles(files.map(({ path, name, folder }) => ({ path, name, folder })));
@@ -244,6 +273,7 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
       setAnalysisError("Could not analyze the repository.");
     } finally {
       setAnalyzing(false);
+      setAnalysisStep(null);
     }
   }
 
@@ -262,9 +292,6 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
   const activeConnection = connections.find((c) => c.id === connectionId);
   const reduceMotion = useReducedMotion();
   const lastCommit = commits[0];
-  const visibleConnections = connections.filter((connection) =>
-    connection.external_ref.toLowerCase().includes(repoSearch.trim().toLowerCase()),
-  );
   const repoStats = [
     { label: "Branches", value: branches.length, icon: <GitBranch size={17} />, tone: "teal" },
     { label: "Open pull requests", value: pullRequests.length, icon: <GitPullRequest size={17} />, tone: "emerald" },
@@ -274,18 +301,9 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
 
   return (
     <div className="repo-workspace">
-      <p className="projects-breadcrumb">Workspace / Repositories</p>
+      <WorkspaceBreadcrumb current="Repositories" onNavigateToWorkspace={onNavigateToWorkspace} />
 
-      {connections.length === 0 ? (
-        <div className="repo-connect-empty">
-          <form onSubmit={createConnection} className="repo-connect-form">
-            <Input aria-label="GitHub repository (org/repo)" value={externalRef} onChange={(event) => setExternalRef(event.target.value)} placeholder="org/repo" />
-            <button className="dialog-primary" type="submit"><Plus size={18} /> Connect a repository</button>
-          </form>
-          <p className="repo-connect-or">or</p>
-          <GitHubRepoPicker accessToken={accessToken} workspaceId={workspaceId} onSelectRepo={(fullName) => { setExternalRef(fullName); void createConnectionFor(fullName); }} />
-        </div>
-      ) : (
+      {connections.length > 0 && (
         <>
           <div className="projects-stat-grid" aria-label="Repository summary">
             {repoStats.map((stat) => (
@@ -300,48 +318,6 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
           </div>
 
           <div className="repo-layout">
-            <aside className="project-list-panel" aria-label="Connected repositories">
-              <div className="project-list-heading">
-                <span>Repositories</span>
-                <span className="project-list-heading-actions">
-                  <small>{connections.length}</small>
-                  <button
-                    type="button"
-                    className="project-create-pill"
-                    onClick={() => setConnectOpen(true)}
-                    aria-label="Connect repository"
-                    title="Connect repository"
-                  >
-                    <Plus aria-hidden="true" size={15} />
-                    <span className="project-create-pill-label">Connect repository</span>
-                  </button>
-                </span>
-              </div>
-              <div className="project-search">
-                <Search size={14} aria-hidden="true" />
-                <input
-                  type="search"
-                  value={repoSearch}
-                  onChange={(event) => setRepoSearch(event.target.value)}
-                  placeholder="Search repositories…"
-                  aria-label="Search repositories"
-                />
-              </div>
-              {visibleConnections.map((connection) => (
-                <button
-                  type="button"
-                  key={connection.id}
-                  className={connection.id === connectionId ? "project-list-item active" : "project-list-item"}
-                  onClick={() => setConnectionId(connection.id)}
-                >
-                  <span className="project-list-icon"><GitBranch size={16} /></span>
-                  <span><strong>{connection.external_ref}</strong><small>{connection.provider.replace("_", " ")}</small></span>
-                  <ArrowRight size={15} />
-                </button>
-              ))}
-              {!visibleConnections.length && <p className="project-empty">No repository matches that search.</p>}
-            </aside>
-
             <div className="repo-main">
               <header className="repo-meta">
                 <div className="repo-meta-title">
@@ -514,6 +490,18 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
 
           {tab === "intelligence" && (
             <div className="repo-intelligence">
+              {commitAnalyses.length > 0 && (
+                <div className="repo-commit-history">
+                  <h3><GitCommit size={14} /> Commit health history</h3>
+                  {commitAnalyses.map((analysis) => (
+                    <article className="operation-row" key={analysis.id}>
+                      <strong>{analysis.commit_sha.slice(0, 7)} {analysis.branch ? `· ${analysis.branch}` : ""}</strong>
+                      <small>{analysis.stats.files} files · {analysis.stats.functions} functions · {analysis.issues.length} issue{analysis.issues.length === 1 ? "" : "s"} · {relativeTime(analysis.created_at)}</small>
+                      <em className={`state-${analysis.grade === "A" || analysis.grade === "B" ? "succeeded" : analysis.grade === "C" ? "running" : "failed"}`}>{analysis.grade} · {analysis.health_score}/100</em>
+                    </article>
+                  ))}
+                </div>
+              )}
               <div className="repo-intelligence-actions">
                 <button type="button" className="dialog-primary" onClick={() => void analyzeRepository()} disabled={analyzing}>
                   <Network size={16} /> {analyzing ? "Analyzing…" : `Analyze ${activeConnection?.external_ref || "repository"}`}
@@ -524,6 +512,9 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
                   </button>
                 )}
               </div>
+              {analyzing && analysisStep && (
+                <AnalysisLoader step={analysisStep} repoLabel={activeConnection?.external_ref || "repository"} />
+              )}
               {analysisError && <p className="project-empty">{analysisError}</p>}
               {exportOpen && (
                 <ExportModal
@@ -581,17 +572,6 @@ export function RepositoryWorkspace({ accessToken, workspaceId }: { accessToken:
         </>
       )}
 
-      {connectOpen && connections.length > 0 && (
-        <div className="repo-connect-inline">
-          <form onSubmit={createConnection} className="repo-connect-form">
-            <Input aria-label="GitHub repository (org/repo)" value={externalRef} onChange={(event) => setExternalRef(event.target.value)} placeholder="org/repo" />
-            <button className="dialog-primary" type="submit"><Plus size={16} /> Connect</button>
-            <button className="dialog-cancel" type="button" onClick={() => setConnectOpen(false)}>Cancel</button>
-          </form>
-          <GitHubRepoPicker accessToken={accessToken} workspaceId={workspaceId} onSelectRepo={(fullName) => { setExternalRef(fullName); void createConnectionFor(fullName); setConnectOpen(false); }} />
-        </div>
-      )}
     </div>
   );
 }
-

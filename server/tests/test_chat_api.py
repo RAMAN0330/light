@@ -32,6 +32,34 @@ def test_current_user_reads_subject_from_dictionary_claims():
     assert current_user(request, "Bearer user-access-token") == "user-2"
 
 
+def test_create_project_persists_the_selected_repository_connection():
+    app = create_app()
+    created = []
+    repository = type(
+        "Repository",
+        (),
+        {
+            "can_access_repository_connection": lambda *_: True,
+            "create_project": lambda _self, user_id, name, instructions, repository_connection_id: created.append(
+                (user_id, name, instructions, repository_connection_id)
+            )
+            or {"id": "project-1", "name": name, "instructions": instructions, "repository_connection_id": repository_connection_id},
+        },
+    )()
+    app.state.supabase = type("Supabase", (), {"auth": type("Auth", (), {"get_claims": lambda *_: {"claims": {"sub": "user-1"}}})()})()
+    app.state.repository_for_token = lambda _token: repository
+
+    response = TestClient(app).post(
+        "/projects",
+        headers={"Authorization": "Bearer user-token"},
+        json={"name": "Orbital", "instructions": "Ship it", "repository_connection_id": "repo-1"},
+    )
+
+    assert response.status_code == 200
+    assert created == [("user-1", "Orbital", "Ship it", "repo-1")]
+    assert response.json()["repository_connection_id"] == "repo-1"
+
+
 def test_chat_websocket_sends_each_generated_delta():
     app = create_app()
 

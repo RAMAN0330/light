@@ -2,7 +2,7 @@ import { forwardRef } from "react";
 import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 const fieldClass =
-  "w-full border border-[#cbdcd8] bg-white text-[#132f2b] rounded-lg outline-none transition-all duration-200 placeholder:text-[#8ba29d] hover:border-teal-400 focus:border-teal-600 focus:ring-4 focus:ring-teal-600/15 disabled:cursor-not-allowed disabled:bg-[#f3f7f6] disabled:opacity-60";
+  "w-full border border-[#4b5263] bg-[#2c313a] text-[#e6e9ef] rounded-lg outline-none transition-all duration-200 placeholder:text-[#8b919d] hover:border-[#4b5263] focus:border-[#4b5263] focus:ring-0 focus-visible:ring-3 focus-visible:ring-[#61afef]/25 disabled:cursor-not-allowed disabled:bg-[#21252b] disabled:opacity-60";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   ({ className = "", ...props }, ref) => (

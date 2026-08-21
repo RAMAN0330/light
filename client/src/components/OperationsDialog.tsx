@@ -117,7 +117,7 @@ export function OperationsDialog({
   onPerformInfraAction,
 }: OperationsDialogProps) {
   return (
-    <DialogShell open={open} labelledBy="operations-title" className="operations-dialog overlay-wide overlay-tall">
+    <DialogShell open={open} labelledBy="operations-title" className="operations-dialog overlay-wide overlay-tall" onClose={onClose}>
       <OverlayHeader
         id="operations-title"
         kicker="Automations"

@@ -1,83 +1,54 @@
-import { useMemo, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
-  ArrowRight,
-  FileText,
-  FolderKanban,
-  MessageSquarePlus,
-  MessagesSquare,
-  Pencil,
-  Plus,
-  Search,
-  Settings2,
-  Trash2,
-  Upload,
-  UserPlus,
-  Users,
+  ArrowRight, CalendarDays, Clock3, FileText, FolderKanban, LogOut,
+  MessageSquarePlus, Orbit, Pencil, Plus, Settings2, Trash2, UserPlus, UserRound, Users,
 } from "lucide-react";
+import { useRef, useState } from "react";
 import type { Artifact, Conversation, OrganizationMember, Project, ProjectDocument } from "../api/chat";
-import { fadeUp, scaleIn, staggerChildren, SPRING_SNAPPY } from "../lib/motion";
+import { fadeUp, scaleIn, SPRING_SNAPPY } from "../lib/motion";
 import { relativeTime } from "../lib/relativeTime";
+import { useOutsideClick } from "../lib/useOutsideClick";
 import { Avatar } from "./ui/avatar";
 
 type Props = {
-  projects: Project[];
-  selectedProjectId: string;
-  conversations: Conversation[];
-  documents: ProjectDocument[];
-  artifacts?: Artifact[];
-  members?: OrganizationMember[];
-  onSelectProject: (id: string) => void;
-  onCreateProject: () => void;
-  onNewConversation: () => void;
-  onEditProject: () => void;
+  projects: Project[]; selectedProjectId: string; conversations: Conversation[];
+  documents: ProjectDocument[]; artifacts?: Artifact[]; members?: OrganizationMember[];
+  onSelectProject?: (id: string) => void; onCreateProject: () => void; onEditProject: () => void;
   onInviteMember: (event: React.FormEvent<HTMLFormElement>) => void;
-  onInviteEmailChange: (value: string) => void;
-  inviteEmail: string;
-  onUploadDocument: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onDeleteDocument: (id: string) => void;
-  onViewAllConversations?: () => void;
-  onManageMembers?: () => void;
+  onInviteEmailChange: (value: string) => void; inviteEmail: string;
+  onManageMembers?: () => void; onNavigateToWorkspace: () => void; onSignOut?: () => void;
+  onDeleteProject?: (project: Project) => void;
+  onOpenProject?: (id: string) => void;
 };
 
+function projectTimestamp(value?: string) {
+  return relativeTime(value) || "Just now";
+}
+
 export function ProjectsPage({
-  projects,
-  selectedProjectId,
-  conversations,
-  documents,
-  artifacts = [],
-  members = [],
-  onSelectProject,
-  onCreateProject,
-  onNewConversation,
-  onEditProject,
-  onInviteMember,
-  onInviteEmailChange,
-  inviteEmail,
-  onUploadDocument,
-  onDeleteDocument,
-  onViewAllConversations,
-  onManageMembers,
+  projects, selectedProjectId, conversations, documents, artifacts = [], members = [], onSelectProject,
+  onCreateProject, onEditProject, onInviteMember, onInviteEmailChange, inviteEmail,
+  onManageMembers, onNavigateToWorkspace, onSignOut, onDeleteProject, onOpenProject,
 }: Props) {
   const reduceMotion = useReducedMotion();
-  const [search, setSearch] = useState("");
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountAnchorRef = useRef<HTMLDivElement>(null);
+  useOutsideClick(accountAnchorRef, accountOpen, () => setAccountOpen(false));
   const selected = projects.find((project) => project.id === selectedProjectId) || projects[0];
   const projectConversations = conversations.filter((conversation) => conversation.project_id === selected?.id);
-  const visibleProjects = useMemo(
-    () => projects.filter((project) => project.name.toLowerCase().includes(search.trim().toLowerCase())),
-    [projects, search],
-  );
-
-  const stats = [
-    { label: "Total projects", value: projects.length, icon: <FolderKanban size={17} />, tone: "teal" },
-    { label: "Total conversations", value: conversations.length, icon: <MessagesSquare size={17} />, tone: "emerald" },
-    { label: "Reference files", value: artifacts.length, icon: <FileText size={17} />, tone: "cyan" },
-    { label: "Active members", value: members.length, icon: <Users size={17} />, tone: "teal" },
-  ] as const;
+  const activityTimestamps = [...projectConversations, ...documents]
+    .map((item) => item.created_at).filter((value): value is string => Boolean(value)).sort();
+  const latestActivity = activityTimestamps[activityTimestamps.length - 1];
 
   return (
     <div className="projects-page">
-      <motion.p className="projects-breadcrumb" initial="hidden" animate="show" variants={fadeUp}>Workspace / Projects</motion.p>
+      <header className="projects-topbar" aria-label="Orbital workspace projects">
+        <div className="projects-topbar-brand"><Orbit size={20} aria-hidden="true" /><strong>Orbital</strong><span aria-hidden="true" /><button type="button" onClick={onNavigateToWorkspace}>Workspace</button><b>/</b><em>Projects</em></div>
+        <div className="projects-account-wrap" ref={accountAnchorRef}>
+          <button type="button" className="projects-account-button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => setAccountOpen((open) => !open)}><strong>Account</strong><span>O</span></button>
+          {accountOpen && <div className="projects-account-menu" role="menu"><button type="button" role="menuitem" onClick={onSignOut}><LogOut size={15} /> Sign out</button></div>}
+        </div>
+      </header>
       {!projects.length ? (
         <motion.section className="projects-empty-page" initial="hidden" animate="show" variants={scaleIn}>
           <span><FolderKanban size={34} /></span>
@@ -87,147 +58,67 @@ export function ProjectsPage({
         </motion.section>
       ) : (
         <>
-          <motion.div className="projects-stat-grid" aria-label="Workspace summary" initial="hidden" animate="show" variants={staggerChildren(0.05)}>
-            {stats.map((stat) => (
-              <motion.div className="projects-stat-card" key={stat.label} variants={fadeUp}>
-                <span className={`projects-stat-icon projects-stat-icon-${stat.tone}`}>{stat.icon}</span>
-                <span>
-                  <small>{stat.label}</small>
-                  <strong>{stat.value}</strong>
-                </span>
-              </motion.div>
-            ))}
-          </motion.div>
-
-          <div className="projects-layout">
-            <motion.aside className="project-list-panel" aria-label="Projects list" initial="hidden" animate="show" variants={staggerChildren(0.04)}>
-              <div className="project-list-heading">
-                <span>Your projects</span>
-                <span className="project-list-heading-actions">
-                  <small>{projects.length}</small>
-                  <button
-                    type="button"
-                    className="project-create-pill"
-                    onClick={onCreateProject}
-                    aria-label="New project"
-                    title="New project"
-                  >
-                    <Plus aria-hidden="true" size={15} />
-                    <span className="project-create-pill-label">New project</span>
-                  </button>
-                </span>
-              </div>
-              <div className="project-search">
-                <Search size={14} aria-hidden="true" />
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search projects…"
-                  aria-label="Search projects"
-                />
-              </div>
-              {visibleProjects.map((project) => {
-                const isActive = project.id === selected?.id;
+        <div className="projects-layout">
+          <aside className="project-list-panel" aria-label="Projects">
+            <div className="project-list-heading">
+              <h2>Projects</h2>
+              <button type="button" className="project-create-pill" aria-label="New project" onClick={onCreateProject}>
+                <Plus size={17} aria-hidden="true" />
+                <span className="project-create-pill-label">New project</span>
+              </button>
+            </div>
+            <nav className="project-list" aria-label="Project list">
+              {projects.map((project) => {
+                const isSelected = project.id === selected?.id;
                 return (
-                  <motion.button
-                    type="button"
-                    key={project.id}
-                    variants={fadeUp}
-                    className={isActive ? "project-list-item active" : "project-list-item"}
-                    onClick={() => onSelectProject(project.id)}
-                  >
-                    {isActive && (
-                      <motion.span
-                        layoutId="project-list-active"
-                        className="project-list-active-indicator"
-                        transition={reduceMotion ? { duration: 0 } : SPRING_SNAPPY}
-                      />
-                    )}
-                    <span className="project-list-icon"><FolderKanban size={16} /></span>
-                    <span><strong>{project.name}</strong><small>{relativeTime(project.created_at) ? `Created ${relativeTime(project.created_at)}` : project.instructions || "No description yet"}</small></span>
-                    <ArrowRight size={15} />
-                  </motion.button>
+                  <div key={project.id} className="project-list-row">
+                    <button type="button" className={`project-list-item${isSelected ? " is-selected" : ""}`} aria-current={isSelected ? "page" : undefined} onClick={() => onSelectProject?.(project.id)}>
+                      <span className="project-list-icon"><FolderKanban size={16} /></span>
+                      <span className="project-list-copy"><strong>{project.name}</strong><small>{project.instructions || "Project workspace"}</small><span className="project-list-owner"><UserRound size={12} /> You · Owner</span></span>
+                    </button>
+                    <button type="button" className="project-row-delete-button" aria-label="Delete project" title={`Delete ${project.name}`} onClick={() => onDeleteProject?.(project)}><Trash2 size={14} /></button>
+                    <button type="button" className="project-row-open-button" onClick={() => onOpenProject?.(project.id)}>Open <ArrowRight size={13} /></button>
+                  </div>
                 );
               })}
-              {!visibleProjects.length && <p className="project-empty">No projects match “{search}”.</p>}
-            </motion.aside>
+            </nav>
+          </aside>
 
-            <motion.main
-              className="project-detail"
-              aria-labelledby="project-detail-title"
-              key={selected?.id}
-              initial={reduceMotion ? undefined : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <header className="project-detail-header">
-                <div className="project-detail-title">
-                  <span className="project-detail-icon"><FolderKanban size={22} /></span>
-                  <div>
-                    <h2 id="project-detail-title">
-                      {selected?.name}
-                      <button type="button" className="project-name-edit" aria-label="Rename project" onClick={onEditProject}><Pencil size={13} /></button>
-                    </h2>
-                    <p>{selected?.instructions || "Add instructions to keep every conversation aligned."}</p>
+          <motion.main className="project-detail" aria-labelledby="project-detail-title" key={selected?.id}
+            initial={reduceMotion ? undefined : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={SPRING_SNAPPY}>
+            <header className="project-detail-header">
+              <div className="project-detail-title">
+                <span className="project-detail-icon"><FolderKanban size={22} /></span>
+                <div>
+                  <h1 id="project-detail-title">{selected?.name}<button type="button" className="project-name-edit" aria-label="Rename project" onClick={onEditProject}><Pencil size={13} /></button></h1>
+                  <p>{selected?.instructions || "Add instructions to keep every conversation aligned."}</p>
+                </div>
+              </div>
+              <div className="project-detail-actions"><button type="button" className="project-settings-button" onClick={onEditProject}><Settings2 size={16} /> Project settings</button></div>
+            </header>
+
+            <div className="project-overview-grid">
+              <section className="project-summary-section" aria-labelledby="project-details-heading">
+                <h2 id="project-details-heading">Project details</h2>
+                <div className="project-meta-grid">
+                  <div><CalendarDays size={20} /><span><small>Created</small><strong>{projectTimestamp(selected?.created_at)}</strong></span></div>
+                  <div><Clock3 size={20} /><span><small>Last updated</small><strong>{projectTimestamp(latestActivity || selected?.created_at)}</strong></span></div>
+                  <div><Users size={20} /><span><small>Members</small><strong>{members.length || 1}</strong></span></div>
+                </div>
+
+                <div className="project-members-section">
+                  <div className="project-section-title"><div><h2>Project members</h2><p>{members.length || 1} member{members.length === 1 ? "" : "s"}</p></div>{onManageMembers && <button type="button" onClick={onManageMembers}><Users size={15} /> Manage members</button>}</div>
+                  <div className="project-member-stack">
+                    {members.length ? <span className="project-member-avatars">{members.slice(0, 5).map((member) => <Avatar key={member.user_id} seed={member.user_id} className="project-member-avatar" />)}</span> : <Avatar seed="you" className="project-member-avatar" />}
+                    <span><strong>{members.length ? "Workspace members" : "You"}</strong><small>{members.length ? "Members with project access" : "Project owner"}</small></span>
                   </div>
+                  <form className="project-invite-form" onSubmit={onInviteMember}><UserPlus size={16} /><input type="email" aria-label="Member email" placeholder="Enter email address" value={inviteEmail} onChange={(event) => onInviteEmailChange(event.target.value)} /><button type="submit">Invite</button></form>
                 </div>
-                <div className="project-detail-actions">
-                  <button type="button" onClick={onEditProject}><Settings2 size={15} /> Settings</button>
-                  <button type="button" className="projects-primary-action" onClick={onNewConversation}><MessageSquarePlus size={15} /> New conversation</button>
-                </div>
-              </header>
+              </section>
 
-              <motion.div className="project-detail-grid" initial="hidden" animate="show" variants={staggerChildren(0.06)}>
-                <motion.section className="project-content-card project-conversations-card" variants={fadeUp}>
-                  <div className="project-card-heading"><div><h3>Conversations</h3><p>Chats connected to this project</p></div><span>{projectConversations.length}</span></div>
-                  {projectConversations.length ? projectConversations.slice(0, 6).map((conversation) => (
-                    <div className="project-conversation-row" key={conversation.id}>
-                      <MessageSquarePlus size={16} />
-                      <span>
-                        <strong>{conversation.title}</strong>
-                        {relativeTime(conversation.created_at) && <small>Started {relativeTime(conversation.created_at)}</small>}
-                      </span>
-                      <ArrowRight size={15} />
-                    </div>
-                  )) : <div className="project-card-empty"><MessageSquarePlus size={28} /><p>No conversations yet.</p><button type="button" onClick={onNewConversation}>Start a conversation</button></div>}
-                  {projectConversations.length > 0 && onViewAllConversations && (
-                    <button type="button" className="project-card-footer-link" onClick={onViewAllConversations}>
-                      View all conversations <ArrowRight size={14} />
-                    </button>
-                  )}
-                </motion.section>
-
-                <motion.section className="project-content-card" variants={fadeUp}>
-                  <div className="project-card-heading"><div><h3>Reference files</h3><p>Documents available to this project</p></div><span>{documents.length}</span></div>
-                  <label className="project-upload-button"><Upload size={15} /> Add .txt or .md<input type="file" accept=".txt,.md" onChange={onUploadDocument} /></label>
-                  {documents.length ? documents.map((document) => (
-                    <div className="project-document-row" key={document.id}><FileText size={16} /><span>{document.name}</span><button type="button" aria-label={`Delete ${document.name}`} onClick={() => onDeleteDocument(document.id)}><Trash2 size={14} /></button></div>
-                  )) : <div className="project-card-empty compact"><FileText size={28} /><p>No reference files yet.</p></div>}
-                </motion.section>
-
-                <motion.section className="project-content-card" variants={fadeUp}>
-                  <div className="project-card-heading"><div><h3>Members</h3><p>Invite people who need this context</p></div></div>
-                  <form className="project-invite-form" onSubmit={onInviteMember}><UserPlus size={16} /><input type="email" aria-label="Member email" placeholder="name@company.com" value={inviteEmail} onChange={(event) => onInviteEmailChange(event.target.value)} /><button type="submit">Invite</button></form>
-                  {members.length > 0 && (
-                    <div className="project-member-stack" aria-label={`${members.length} workspace members`}>
-                      <span className="project-member-avatars">
-                        {members.slice(0, 5).map((member) => (
-                          <Avatar key={member.user_id} seed={member.user_id} className="project-member-avatar" />
-                        ))}
-                      </span>
-                      <small>{members.length} member{members.length === 1 ? "" : "s"}</small>
-                      {onManageMembers && (
-                        <button type="button" className="project-manage-members" onClick={onManageMembers}>
-                          <Users size={14} /> Manage members
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </motion.section>
-              </motion.div>
-            </motion.main>
-          </div>
+            </div>
+          </motion.main>
+        </div>
         </>
       )}
     </div>

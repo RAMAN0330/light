@@ -1,6 +1,6 @@
 export type Conversation = { id: string; title: string; project_id?: string | null; created_at?: string };
 export type Message = { role: "user" | "assistant"; content: string };
-export type Project = { id: string; name: string; instructions: string; created_at?: string };
+export type Project = { id: string; name: string; instructions: string; repository_connection_id?: string | null; created_at?: string };
 export type ProjectDocument = { id: string; name: string; created_at?: string };
 export type Workspace = { id: string; name: string; role: string; organization_id: string };
 export type OrganizationMember = { user_id: string; role: string; created_at: string };
@@ -52,6 +52,10 @@ export const chatApi = {
   async listWorkspaces(token: string): Promise<Workspace[]> {
     return (await request(token, "/workspaces")).json();
   },
+  async deleteWorkspace(token: string, workspaceId: string, name: string): Promise<void> { await request(token, `/workspaces/${workspaceId}`, { method: "DELETE", body: JSON.stringify({ name }) }); },
+  async inviteWorkspaceMember(token: string, workspaceId: string, email: string): Promise<void> {
+    await request(token, `/workspaces/${workspaceId}/invites`, { method: "POST", body: JSON.stringify({ email }) });
+  },
   async listMembers(token: string, organizationId: string): Promise<OrganizationMember[]> {
     return (await request(token, `/organizations/${organizationId}/members`)).json();
   },
@@ -93,8 +97,9 @@ export const chatApi = {
     return (await request(token, "/conversations")).json();
   },
   async listProjects(token: string): Promise<Project[]> { return (await request(token, "/projects")).json(); },
-  async createProject(token: string, name: string, instructions = ""): Promise<Project> { return (await request(token, "/projects", { method: "POST", body: JSON.stringify({ name, instructions }) })).json(); },
+  async createProject(token: string, name: string, instructions = "", repositoryConnectionId?: string): Promise<Project> { return (await request(token, "/projects", { method: "POST", body: JSON.stringify({ name, instructions, ...(repositoryConnectionId ? { repository_connection_id: repositoryConnectionId } : {}) }) })).json(); },
   async updateProject(token: string, projectId: string, name: string, instructions: string): Promise<Project> { return (await request(token, `/projects/${projectId}`, { method: "PATCH", body: JSON.stringify({ name, instructions }) })).json(); },
+  async deleteProject(token: string, projectId: string, name: string): Promise<void> { await request(token, `/projects/${projectId}`, { method: "DELETE", body: JSON.stringify({ name }) }); },
   async inviteProjectMember(token: string, projectId: string, email: string): Promise<void> { await request(token, `/projects/${projectId}/invites`, { method: "POST", body: JSON.stringify({ email }) }); },
   async addProjectDocument(token: string, projectId: string, name: string, content: string): Promise<void> { await request(token, `/projects/${projectId}/documents`, { method: "POST", body: JSON.stringify({ name, content }) }); },
   async listProjectDocuments(token: string, projectId: string): Promise<ProjectDocument[]> { return (await request(token, `/projects/${projectId}/documents`)).json(); },
