@@ -424,7 +424,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workspace-sidebar:not(:hover):not(:focus-within):not(.is-pinned-open) .workspace-navigation section {
   gap: 4px;
 }
-.workspace-sidebar:not(:hover):not(:focus-within):not(.is-pinned-open) .workspace-navigation section:not(:first-child) { display: none; }
 .workspace-sidebar:not(:hover):not(:focus-within):not(.is-pinned-open) .workspace-navigation p {
   display: none;
 }
