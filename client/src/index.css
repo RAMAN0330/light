@@ -138,6 +138,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workspace-shell:has(.workspace-sidebar.is-pinned-open) {
   grid-template-columns: 260px minmax(0, 1fr);
 }
+/* Collapsed rail is 64px wide, so the same 12px gap used when expanded reads
+   as disproportionately wide next to it — tighten it only in this state. */
+.workspace-shell:not(:has(.workspace-sidebar:hover)):not(:has(.workspace-sidebar:focus-within)):not(:has(.workspace-sidebar.is-pinned-open)) {
+  gap: 6px;
+}
 .conversations-active .workspace-sidebar {
   height: 100%;
   border: 1px solid var(--border-subtle);
@@ -161,6 +166,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .workspace-shell.conversations-active {
     padding: 14px;
     gap: 14px;
+  }
+  .workspace-shell:not(:has(.workspace-sidebar:hover)):not(:has(.workspace-sidebar:focus-within)):not(:has(.workspace-sidebar.is-pinned-open)) {
+    gap: 6px;
   }
 }
 
@@ -326,14 +334,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   line-height: 1;
   color: var(--text-primary);
 }
-.workspace-navigation p {
-  transition: opacity 0.2s ease;
-}
-.workspace-sidebar:not(:hover):not(:focus-within):not(.is-pinned-open) .workspace-navigation p {
-  opacity: 0;
-  pointer-events: none;
-  white-space: nowrap;
-}
 .workspace-brand small {
   margin-left: 2px;
   padding-left: 10px;
@@ -351,7 +351,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workspace-navigation {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 4px;
   margin: 12px 0 0;
   min-height: 0;
   overflow: hidden;
@@ -361,14 +361,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   flex-direction: column;
   gap: 3px;
 }
-.workspace-navigation p {
-  margin: 4px 6px 2px;
-  color: var(--text-muted);
-  font-family: "DM Mono", monospace;
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* Fixed-height divider between nav sections — unlike the text labels it
+   replaces, it never hides or resizes when the sidebar collapses, so icons
+   below it don't shift position between collapsed and expanded. */
+.workspace-nav-divider {
+  height: 0;
+  margin: 8px 2px;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .workspace-nav-item {
@@ -415,17 +415,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   justify-content: center;
   padding-inline: 0;
   gap: 0;
-}
-.workspace-sidebar:not(:hover):not(:focus-within):not(.is-pinned-open) .workspace-navigation {
-  gap: 0;
-  margin-top: 12px;
-  overflow: hidden;
-}
-.workspace-sidebar:not(:hover):not(:focus-within):not(.is-pinned-open) .workspace-navigation section {
-  gap: 4px;
-}
-.workspace-sidebar:not(:hover):not(:focus-within):not(.is-pinned-open) .workspace-navigation p {
-  display: none;
 }
 .workspace-sidebar:not(:hover):not(:focus-within):not(.is-pinned-open) .workspace-nav-item {
   display: flex;

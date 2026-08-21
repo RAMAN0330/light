@@ -138,9 +138,9 @@ export function WorkspaceSidebar(props: Props) {
         animate="show"
         variants={staggerChildren(0.04)}
       >
-        {sections.map((section) => (
-          <section key={section.title}>
-            <p>{section.title}</p>
+        {sections.map((section, index) => (
+          <section key={section.title} aria-label={section.title}>
+            {index > 0 && <hr className="workspace-nav-divider" aria-hidden="true" />}
             {section.items.map((item) => (
               <NavButton key={item.id} {...item} reduceMotion={reduceMotion} />
             ))}
