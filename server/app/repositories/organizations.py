@@ -580,9 +580,12 @@ class SupabaseOrganizationRepository:
         )
 
     def create_ci_connection(self, user_id: str, workspace_id: str, provider: str, external_ref: str, manifest: dict):
+        # Reconnecting the same repo (workspace_id, provider, external_ref)
+        # is idempotent rather than a 500 — upsert on the same unique
+        # constraint the table already enforces, instead of a plain insert.
         return (
             self.client.table("ci_connections")
-            .insert(
+            .upsert(
                 {
                     "workspace_id": workspace_id,
                     "provider": provider,
@@ -594,7 +597,8 @@ class SupabaseOrganizationRepository:
                     # poller and the commit-analysis poller/webhook.
                     "enabled": True,
                     "created_by": user_id,
-                }
+                },
+                on_conflict="workspace_id,provider,external_ref",
             )
             .execute()
             .data[0]
