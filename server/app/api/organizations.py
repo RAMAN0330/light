@@ -1107,6 +1107,14 @@ async def repository_tags(workspace_id: str, connection_id: str, request: Reques
     return await github_gateway_for(request, authorization).tags(user_id, workspace_id, connection, limit)
 
 
+@router.post("/workspaces/{workspace_id}/repositories/{connection_id}/analyze")
+async def repository_analyze(workspace_id: str, connection_id: str, request: Request, ref: Optional[str] = None, authorization: Optional[str] = Header(default=None)):
+    user_id = current_user(request, authorization)
+    repository = organization_repository(request, authorization)
+    connection = _repo_connection_or_404(repository, user_id, workspace_id, connection_id)
+    return await github_gateway_for(request, authorization).analyze(user_id, workspace_id, connection, ref)
+
+
 @router.post("/workspaces/{workspace_id}/ci-connections/{connection_id}/credential", status_code=204)
 def register_ci_credential(workspace_id: str, connection_id: str, body: CiCredentialCreate, request: Request, authorization: Optional[str] = Header(default=None)):
     """Stores a write-scope GitHub token (``workflow`` scope) needed to trigger runs.

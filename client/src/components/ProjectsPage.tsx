@@ -4,7 +4,7 @@ import {
   MessageSquarePlus, Orbit, Pencil, Plus, Settings2, Trash2, UserPlus, UserRound, Users,
 } from "lucide-react";
 import { useRef, useState } from "react";
-import type { Artifact, Conversation, OrganizationMember, Project, ProjectDocument } from "../api/chat";
+import type { Conversation, OrganizationMember, Project, ProjectDocument } from "../api/chat";
 import { fadeUp, scaleIn, SPRING_SNAPPY } from "../lib/motion";
 import { relativeTime } from "../lib/relativeTime";
 import { useOutsideClick } from "../lib/useOutsideClick";
@@ -12,7 +12,7 @@ import { Avatar } from "./ui/avatar";
 
 type Props = {
   projects: Project[]; selectedProjectId: string; conversations: Conversation[];
-  documents: ProjectDocument[]; artifacts?: Artifact[]; members?: OrganizationMember[];
+  documents: ProjectDocument[]; members?: OrganizationMember[];
   onSelectProject?: (id: string) => void; onCreateProject: () => void; onEditProject: () => void;
   onInviteMember: (event: React.FormEvent<HTMLFormElement>) => void;
   onInviteEmailChange: (value: string) => void; inviteEmail: string;
@@ -26,7 +26,7 @@ function projectTimestamp(value?: string) {
 }
 
 export function ProjectsPage({
-  projects, selectedProjectId, conversations, documents, artifacts = [], members = [], onSelectProject,
+  projects, selectedProjectId, conversations, documents, members = [], onSelectProject,
   onCreateProject, onEditProject, onInviteMember, onInviteEmailChange, inviteEmail,
   onManageMembers, onNavigateToWorkspace, onSignOut, onDeleteProject, onOpenProject,
 }: Props) {

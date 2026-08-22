@@ -1,0 +1,84 @@
+services:
+  codegraph-gateway:
+    build: ./server-go
+    environment:
+      PORT: "5000"
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:8080}
+      FASTAPI_URL: http://codegraph-analysis:8000
+      LEGACY_API_URL: http://codegraph-legacy-api:5001
+      RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-50}
+      MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-256}
+    ports:
+      - "5100:5000"
+    depends_on:
+      codegraph-analysis:
+        condition: service_healthy
+      codegraph-legacy-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  codegraph-legacy-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.node
+    environment:
+      PORT: "5001"
+      NODE_ENV: production
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:8080}
+      REDIS_URL: redis://codegraph-redis:6379/0
+      SESSION_SECRET: ${CODEGRAPH_SESSION_SECRET:?set CODEGRAPH_SESSION_SECRET}
+      GITHUB_CLIENT_ID: ${CODEGRAPH_GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${CODEGRAPH_GITHUB_CLIENT_SECRET:-}
+      GITHUB_CALLBACK_URL: ${CODEGRAPH_GITHUB_CALLBACK_URL:-http://localhost:8080/auth/github/callback}
+    depends_on:
+      codegraph-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5001/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  codegraph-analysis:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.python
+    environment:
+      REDIS_URL: redis://codegraph-redis:6379/0
+    depends_on:
+      codegraph-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  codegraph-worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.python
+    command: ["celery", "-A", "app.worker", "worker", "--loglevel=warning", "--concurrency=${CODEGRAPH_CELERY_CONCURRENCY:-4}", "--max-tasks-per-child=25"]
+    environment:
+      REDIS_URL: redis://codegraph-redis:6379/0
+    depends_on:
+      codegraph-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  codegraph-redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - codegraph-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  codegraph-redis-data:

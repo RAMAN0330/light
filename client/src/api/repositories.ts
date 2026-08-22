@@ -22,11 +22,18 @@ export type CommitAnalysis = {
   created_at: string;
 };
 export type Tag = { name: string; commit: { sha: string } };
+export type AnalysisGraphNode = { id: string; [key: string]: unknown };
+export type AnalysisGraphEdge = { source: string; target: string; [key: string]: unknown };
+export type AnalysisGraph = {
+  nodes: AnalysisGraphNode[];
+  edges: AnalysisGraphEdge[];
+  stats: { files: number; nodes: number; edges: number };
+};
 
 const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-async function request(token: string, path: string) {
-  const response = await fetch(`${apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+async function request(token: string, path: string, method: "GET" | "POST" = "GET") {
+  const response = await fetch(`${apiUrl}${path}`, { method, headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "Request failed");
   return response;
 }
@@ -67,5 +74,9 @@ export const repositoryApi = {
   },
   async compare(token: string, workspaceId: string, connectionId: string, base: string, head: string): Promise<GatedResult<{ files: { filename: string; patch?: string }[]; commits: unknown[] }>> {
     return (await request(token, `/workspaces/${workspaceId}/repositories/${connectionId}/compare?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`)).json();
+  },
+  async analyze(token: string, workspaceId: string, connectionId: string, ref?: string): Promise<GatedResult<AnalysisGraph>> {
+    const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+    return (await request(token, `/workspaces/${workspaceId}/repositories/${connectionId}/analyze${query}`, "POST")).json();
   },
 };

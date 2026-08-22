@@ -1,9 +1,28 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
+/* Lets Tailwind's JIT scanner see the utility classes Streamdown's compiled
+   output references (it isn't part of our own src/ tree). */
+@source "../node_modules/streamdown/dist/*.js";
 
 /* ===========================================================================
    ORBITAL ONE DARK PRO DESIGN SYSTEM
    ========================================================================== */
+
+/* Streamdown (markdown renderer for assistant messages) reads shadcn-style
+   semantic color tokens for its code-block controls and tables. This app
+   doesn't use the shadcn token system, so map the tokens it actually
+   references onto our existing One Dark Pro variables instead of adopting
+   shadcn's full palette. */
+@theme {
+  --color-background: #282c34; /* mirrors --bg-canvas below; keep in sync if that changes */
+  --color-foreground: #e6e9ef; /* mirrors --text-primary */
+  --color-muted: #3e4451; /* mirrors --surface-active / --border-subtle */
+  --color-muted-foreground: #8b919d; /* mirrors --text-muted */
+  --color-border: #3e4451; /* mirrors --border-subtle */
+  --color-primary: #528bff; /* mirrors --teal-600 */
+  --color-primary-foreground: #ffffff;
+  --color-sidebar: #2c313a; /* mirrors --surface-card; used for Streamdown's code-block/table chrome */
+}
 
 :root {
   /* One Dark Pro blue accent scale */
@@ -2652,68 +2671,10 @@ article.assistant .message-label::before {
   color: var(--text-secondary);
 }
 
-/* Styled Markdown Tables */
-.table-wrapper {
-  width: 100%;
-  overflow-x: auto;
-  margin: 16px 0;
-  border: 1px solid var(--border-medium);
-  border-radius: 12px;
-  background: var(--surface-card);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
-}
-.table-wrapper table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 0.88rem;
-}
-.table-wrapper thead {
-  background: var(--teal-50);
-  border-bottom: 1.5px solid var(--teal-200);
-}
-.table-wrapper th {
-  padding: 11px 16px;
-  font-size: 0.8rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  letter-spacing: 0.02em;
-}
-.table-wrapper td {
-  padding: 11px 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  line-height: 1.55;
-}
-.table-wrapper tbody tr:last-child td {
-  border-bottom: none;
-}
-.table-wrapper tbody tr:hover {
-  background: var(--surface-hover);
-}
-
-/* Code Blocks & Inline Code */
-.assistant-content pre {
-  background: var(--surface-subtle);
-  color: var(--text-primary);
-  border-radius: 12px;
-  padding: 16px 18px;
-  margin: 14px 0;
-  overflow-x: auto;
-  font-family: "DM Mono", monospace;
-  font-size: 0.85rem;
-  line-height: 1.55;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-}
-.assistant-content code.inline-code {
-  background: var(--surface-active);
-  color: var(--teal-900);
-  padding: 2px 6px;
-  border-radius: 5px;
-  font-family: "DM Mono", monospace;
-  font-size: 0.84em;
-  font-weight: 600;
-}
+/* Markdown tables and code blocks in assistant messages are rendered by
+   Streamdown's own default components (data-streamdown="table-wrapper" /
+   "code-block" / "inline-code"), styled via the @theme tokens near the top
+   of this file rather than bespoke classes here. */
 
 /* Real-Time Streaming Cursor */
 .streaming-cursor {
@@ -3280,12 +3241,39 @@ article.assistant .message-label::before {
 .repo-file-path { margin: 0 0 8px; font-family: "DM Mono", monospace; font-size: 0.72rem; color: var(--text-muted); }
 .repo-list { display: flex; flex-direction: column; gap: 6px; }
 .repo-intelligence { display: flex; flex-direction: column; gap: 16px; max-width: 720px; }
+.repo-intel-section { padding: 14px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-card); }
+.repo-intel-section + .repo-intel-section { margin-top: 0; }
 .repo-health-row { display: flex; align-items: center; gap: 16px; padding: 14px; border: 1px solid var(--border-subtle); border-radius: 12px; background: #fff; }
+.repo-intel-section > .repo-health-row:not(:first-child) { margin-top: 12px; }
+.repo-intel-section > .repo-health-row { padding: 0; border: none; background: transparent; }
 .repo-health-row .ring { position: relative; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
 .repo-health-row .ring::before { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: #fff; }
 .repo-health-row .ring span { position: relative; font-size: 0.9rem; font-weight: 800; color: var(--teal-800); }
-.repo-issues h3, .repo-blast h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 0.78rem; font-weight: 800; color: var(--text-primary); }
+.repo-intel-icon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; background: var(--surface-active); color: var(--teal-400); }
+.repo-issues h3, .repo-blast h3, .repo-intel-section h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 0.78rem; font-weight: 800; color: var(--text-primary); }
+.repo-issues, .repo-blast { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
 .repo-issues .operation-row, .repo-blast .operation-row { margin-top: 6px; }
+.repo-intelligence-intro { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.repo-intelligence-intro-copy { flex: 1 1 260px; min-width: 0; }
+.repo-intelligence-intro-copy h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-size: 0.82rem; font-weight: 800; color: var(--text-primary); }
+.repo-intelligence-intro-copy p { margin: 0; max-width: 46ch; }
+.repo-inline-status { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text-secondary); font-size: 0.78rem; }
+.repo-intelligence-action-deep {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--teal-600);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--teal-400);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+.repo-intelligence-action-deep:hover:not(:disabled) { background: rgba(82, 139, 255, 0.12); }
+.repo-intelligence-action-deep:disabled { opacity: 0.7; cursor: default; }
+.repo-intelligence-action-deep .repo-meta-badge { color: var(--teal-400); background: var(--surface-active); }
 
 .repo-analysis-loader { display: flex; align-items: center; gap: 18px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-card); }
 .repo-analysis-loader-orbit { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; background: var(--surface-subtle); border: 1px solid var(--border-subtle); }
@@ -3299,6 +3287,18 @@ article.assistant .message-label::before {
 .repo-analysis-loader-steps li.is-done .repo-analysis-loader-node { background: var(--teal-600); }
 .repo-analysis-loader-steps li.is-active .repo-analysis-loader-node { background: var(--teal-600); box-shadow: 0 0 0 3px rgba(82, 139, 255, 0.28); animation: pulseGlow 1.2s ease-in-out infinite; }
 
+/* Deep-analysis dependency graph (sigma.js + graphology) */
+.analysis-graph-view { position: relative; margin-top: 12px; height: 480px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-subtle); overflow: hidden; }
+.analysis-graph-stage { position: absolute; inset: 0; }
+.analysis-graph-legend { position: absolute; z-index: 2; top: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 10px; padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: rgba(33, 37, 43, 0.82); font-size: 0.68rem; font-weight: 700; color: var(--text-secondary); }
+.analysis-graph-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.analysis-graph-legend i { width: 8px; height: 8px; border-radius: 50%; }
+.analysis-graph-tooltip { position: fixed; z-index: 50; display: flex; flex-direction: column; gap: 2px; max-width: 320px; padding: 8px 10px; border: 1px solid var(--border-medium); border-radius: 8px; background: var(--surface-card); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32); pointer-events: none; }
+.analysis-graph-tooltip strong { font-size: 0.76rem; color: var(--text-primary); word-break: break-word; }
+.analysis-graph-tooltip small { font-size: 0.68rem; color: var(--text-muted); word-break: break-word; }
+.analysis-graph-clear { position: absolute; z-index: 2; top: 10px; right: 10px; padding: 5px 10px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--surface-card); color: var(--text-secondary); font-size: 0.7rem; font-weight: 700; }
+.analysis-graph-clear:hover { background: var(--surface-hover); color: var(--text-primary); }
+
 /* Database schema panel */
 .db-panel { display: flex; flex-direction: column; gap: 14px; height: 100%; min-height: 0; }
 .db-source-body { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
@@ -3309,7 +3309,7 @@ article.assistant .message-label::before {
 .db-diagram { position: relative; flex: 1; min-height: 480px; border: 1px solid var(--border-subtle); border-radius: 12px; overflow: hidden; }
 
 .repo-trends { display: flex; flex-direction: column; gap: 16px; }
-.repo-intelligence-actions { display: flex; align-items: center; gap: 8px; }
+.repo-intelligence-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .infra-resource-tabs { display: flex; gap: 6px; margin: 10px 0; }
 .infra-tab { position: relative; padding: 1px; border: 1px solid var(--border-medium); border-radius: 999px; background: #fff; color: var(--text-secondary); font-size: 0.7rem; font-weight: 700; transition: color 0.15s ease; }
 .infra-tab.active { border-color: var(--teal-300); color: var(--teal-800); }

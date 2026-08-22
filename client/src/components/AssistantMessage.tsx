@@ -1,5 +1,5 @@
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Streamdown } from "streamdown";
+import "streamdown/styles.css";
 
 function normalizeResponseMarkdown(content: string) {
   let inFence = false;
@@ -22,33 +22,11 @@ export function AssistantMessage({ content, isStreaming = false }: Props) {
 
   return (
     <div className={`assistant-content ${isStreaming ? "is-streaming" : ""}`}>
-      <Markdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          table: ({ children }) => (
-            <div className="table-wrapper">
-              <table>{children}</table>
-            </div>
-          ),
-          code: ({ className, children, ...props }) => {
-            const isBlock = Boolean(className);
-            if (isBlock) {
-              return (
-                <code className={className} {...props}>
-                  {children}
-                </code>
-              );
-            }
-            return (
-              <code className="inline-code" {...props}>
-                {children}
-              </code>
-            );
-          },
-        }}
-      >
-        {normalized}
-      </Markdown>
+      {/* No table/code component overrides: Streamdown's own defaults already
+          give tables and code blocks copy/download buttons, a responsive
+          scroll wrapper, and syntax highlighting — richer than the bespoke
+          .table-wrapper/.inline-code markup react-markdown needed. */}
+      <Streamdown mode={isStreaming ? "streaming" : "static"}>{normalized}</Streamdown>
       {isStreaming && (
         <span className="streaming-cursor" aria-label="Streaming response" />
       )}

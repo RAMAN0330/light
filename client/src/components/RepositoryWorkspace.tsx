@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Database, GitBranch, GitCommit, GitPullRequest, Lock, Network, Shield, Users } from "lucide-react";
+import { Database, GitBranch, GitCommit, GitPullRequest, Lock, Network, RefreshCw, Shield, Sparkles, Users } from "lucide-react";
 import { EASE_OUT_EXPO, SPRING_SNAPPY } from "../lib/motion";
 import { relativeTime } from "../lib/relativeTime";
 
 import { cicdApi, type CiConnection } from "../api/cicd";
-import { repositoryApi, type Branch, type CommitAnalysis, type CommitSummary, type PullRequestSummary, type RepoInfo, type TreeEntry } from "../api/repositories";
+import { repositoryApi, type AnalysisGraph, type Branch, type CommitAnalysis, type CommitSummary, type PullRequestSummary, type RepoInfo, type TreeEntry } from "../api/repositories";
 import { buildAnalysis, buildTree, calcBlast, calcHealth, detectIssues, type Connection, type FnDef } from "../features/analysis/services/analysis";
 import { Parser } from "../features/analysis/services/parser";
 import { buildActivityPoints, fetchTrendData, type ActivityPoint, type TrendSnapshot } from "../features/analysis/services/trends";
@@ -20,6 +20,7 @@ import { extractManifestDependencies } from "../features/security/services/manif
 import { scanDependencies, type VulnResult } from "../features/security/services/osv";
 import ExportModal from "../features/export/components/ExportModal";
 import { VirtualizedRepoTree } from "../shared/components/VirtualizedRepoTree";
+import { DialogShell, OverlayBody, OverlayFooter, OverlayHeader } from "./ui/dialog-shell";
 import { Select } from "./ui/field";
 import { WorkspaceBreadcrumb } from "./ui/workspace-breadcrumb";
 
@@ -28,6 +29,8 @@ import { WorkspaceBreadcrumb } from "./ui/workspace-breadcrumb";
 // into their own chunks instead of bloating every Repositories page load.
 const DatabaseSchemaPanel = lazy(() => import("./DatabaseSchemaPanel").then((m) => ({ default: m.DatabaseSchemaPanel })));
 const TrendsPanel = lazy(() => import("./TrendsPanel").then((m) => ({ default: m.TrendsPanel })));
+// sigma.js + graphology are only needed once a deep-analysis result exists to visualize.
+const AnalysisGraphView = lazy(() => import("../features/analysis/components/AnalysisGraphView").then((m) => ({ default: m.AnalysisGraphView })));
 const tabPanelFallback = <div className="repo-workspace-loading">Loading…</div>;
 
 type Tab = "tree" | "commits" | "branches" | "pulls" | "intelligence" | "ownership" | "contributors" | "releases" | "security" | "database" | "trends";
@@ -88,13 +91,32 @@ function gatedMessage(status: string, reason?: string): string {
   return "Unavailable.";
 }
 
-export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWorkspace }: { accessToken: string; workspaceId: string; onNavigateToWorkspace: () => void }) {
+export function RepositoryWorkspace({
+  accessToken,
+  workspaceId,
+  onNavigateToWorkspace,
+  initialConnectionId,
+  autoAnalyze,
+  onAutoAnalyzeConsumed,
+}: {
+  accessToken: string;
+  workspaceId: string;
+  onNavigateToWorkspace: () => void;
+  initialConnectionId?: string;
+  autoAnalyze?: boolean;
+  onAutoAnalyzeConsumed?: () => void;
+}) {
+  // Captured once at mount — a freshly created project should auto-analyze
+  // exactly once, not every time this surface re-renders or is revisited.
+  const [pendingAutoConnectionId] = useState(initialConnectionId || "");
+  const autoAnalyzeTriggeredRef = useRef(false);
   const [connections, setConnections] = useState<CiConnection[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [branch, setBranch] = useState("");
   const [tab, setTab] = useState<Tab>("tree");
   const [tree, setTree] = useState<TreeEntry[]>([]);
   const [treeError, setTreeError] = useState("");
+  const [treeLoading, setTreeLoading] = useState(false);
   const [selectedPath, setSelectedPath] = useState("");
   const [fileContent, setFileContent] = useState("");
   const [commits, setCommits] = useState<CommitSummary[]>([]);
@@ -107,6 +129,10 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState<AnalysisStepId | null>(null);
   const [analysisError, setAnalysisError] = useState("");
+  const [deepAnalyzing, setDeepAnalyzing] = useState(false);
+  const [deepAnalysis, setDeepAnalysis] = useState<AnalysisGraph | null>(null);
+  const [deepAnalysisMessage, setDeepAnalysisMessage] = useState("");
+  const [firstRunOverlayOpen, setFirstRunOverlayOpen] = useState(false);
   const [functions, setFunctions] = useState<FnDef[]>([]);
   const [connectionsGraph, setConnectionsGraph] = useState<Connection[]>([]);
   const [analyzedFiles, setAnalyzedFiles] = useState<{ path: string; name: string; folder: string }[]>([]);
@@ -127,9 +153,9 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
     if (!workspaceId) return;
     cicdApi.listCiConnections(accessToken, workspaceId).then((items) => {
       setConnections(items);
-      setConnectionId((current) => current || items[0]?.id || "");
+      setConnectionId((current) => current || pendingAutoConnectionId || items[0]?.id || "");
     }).catch(() => {});
-  }, [accessToken, workspaceId]);
+  }, [accessToken, workspaceId, pendingAutoConnectionId]);
 
   useEffect(() => {
     if (!connectionId) return;
@@ -172,14 +198,30 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
     repositoryApi.commitAnalyses(accessToken, workspaceId, connectionId).then(setCommitAnalyses).catch(() => {});
   }, [accessToken, workspaceId, connectionId]);
 
+  // A freshly created project lands here with its repo already selected —
+  // kick off the same on-demand graph analysis a manual "Analyze" click
+  // would, once repoInfo has resolved a branch to analyze. Surfaced as a
+  // blocking overlay (rather than a silent background tab) since this is
+  // the project's first analysis and establishes it for the first time.
+  useEffect(() => {
+    if (!autoAnalyze || !pendingAutoConnectionId || connectionId !== pendingAutoConnectionId) return;
+    if (!branch || autoAnalyzeTriggeredRef.current) return;
+    autoAnalyzeTriggeredRef.current = true;
+    setTab("intelligence");
+    setFirstRunOverlayOpen(true);
+    void analyzeRepository();
+    onAutoAnalyzeConsumed?.();
+  }, [autoAnalyze, pendingAutoConnectionId, connectionId, branch]);
+
   const needsTree = tab === "tree" || tab === "ownership" || tab === "contributors" || tab === "security" || tab === "database";
   useEffect(() => {
-    if (!connectionId || !branch || !needsTree || tree.length) return;
+    if (!connectionId || !branch || !needsTree || tree.length || treeError) return;
+    setTreeLoading(true);
     repositoryApi.tree(accessToken, workspaceId, connectionId, branch).then((result) => {
       if (result.status === "completed") setTree(result.data.tree.filter((entry) => entry.type === "blob"));
-      else setTreeError(gatedMessage(result.status, "reason" in result ? result.reason : undefined));
-    }).catch(() => setTreeError("Could not reach the repository."));
-  }, [accessToken, workspaceId, connectionId, branch, needsTree, tree.length]);
+      else setTreeError(gatedMessage(result.status, "reason" in result ? result.reason : "error" in result ? result.error : undefined));
+    }).catch(() => setTreeError("Could not reach the repository.")).finally(() => setTreeLoading(false));
+  }, [accessToken, workspaceId, connectionId, branch, needsTree, tree.length, treeError]);
 
   useEffect(() => {
     if (!connectionId || tab !== "security" || !tree.length) return;
@@ -277,6 +319,26 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
     }
   }
 
+  // Server-side clone + graphify structural extraction (repo.analysis.run),
+  // separate from the browser-computed graph above: it sees the whole repo
+  // rather than the first MAX_ANALYZED_FILES, but clones the tree server-side
+  // so it is gated behind workspace approval by default.
+  async function deepAnalyzeRepository() {
+    if (!connectionId) return;
+    setDeepAnalyzing(true);
+    setDeepAnalysisMessage("");
+    setDeepAnalysis(null);
+    try {
+      const result = await repositoryApi.analyze(accessToken, workspaceId, connectionId, branch);
+      if (result.status === "completed") setDeepAnalysis(result.data);
+      else setDeepAnalysisMessage(gatedMessage(result.status, "reason" in result ? result.reason : "error" in result ? result.error : undefined));
+    } catch {
+      setDeepAnalysisMessage("Could not reach the analysis service.");
+    } finally {
+      setDeepAnalyzing(false);
+    }
+  }
+
   const fnCountByFile = new Map<string, number>();
   functions.forEach((fn) => fnCountByFile.set(fn.file, (fnCountByFile.get(fn.file) || 0) + 1));
   const health = analyzedFiles.length
@@ -287,7 +349,13 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
     : null;
   const issues = analyzedFiles.length ? detectIssues(analyzedFiles, functions, connectionsGraph) : [];
   const blast = selectedBlastPath ? calcBlast(selectedBlastPath, connectionsGraph, analyzedFiles) : null;
-  const folderTree = tree.length ? buildTree(tree.map((entry) => ({ ...entry, folder: entry.path.includes("/") ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "root" }))) : null;
+  const folderTree = tree.length
+    ? buildTree(tree.map((entry) => ({
+        ...entry,
+        folder: entry.path.includes("/") ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "root",
+        name: entry.path.includes("/") ? entry.path.slice(entry.path.lastIndexOf("/") + 1) : entry.path,
+      })))
+    : null;
 
   const activeConnection = connections.find((c) => c.id === connectionId);
   const reduceMotion = useReducedMotion();
@@ -361,7 +429,9 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
           {tab === "tree" && (
             <div className="repo-tree-layout">
               <div className="repo-tree-pane">
-                {treeError && <p className="project-empty">{treeError}</p>}
+                {treeLoading && <p className="project-empty">Loading files…</p>}
+                {!treeLoading && treeError && <p className="project-empty">{treeError}</p>}
+                {!treeLoading && !treeError && !tree.length && <p className="project-empty">This repository has no files on {branch || "its default branch"} yet.</p>}
                 {folderTree && (
                   <VirtualizedRepoTree
                     tree={folderTree}
@@ -490,32 +560,37 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
 
           {tab === "intelligence" && (
             <div className="repo-intelligence">
-              {commitAnalyses.length > 0 && (
-                <div className="repo-commit-history">
-                  <h3><GitCommit size={14} /> Commit health history</h3>
-                  {commitAnalyses.map((analysis) => (
-                    <article className="operation-row" key={analysis.id}>
-                      <strong>{analysis.commit_sha.slice(0, 7)} {analysis.branch ? `· ${analysis.branch}` : ""}</strong>
-                      <small>{analysis.stats.files} files · {analysis.stats.functions} functions · {analysis.issues.length} issue{analysis.issues.length === 1 ? "" : "s"} · {relativeTime(analysis.created_at)}</small>
-                      <em className={`state-${analysis.grade === "A" || analysis.grade === "B" ? "succeeded" : analysis.grade === "C" ? "running" : "failed"}`}>{analysis.grade} · {analysis.health_score}/100</em>
-                    </article>
-                  ))}
+              <div className="repo-intel-section repo-intelligence-intro">
+                <div className="repo-intelligence-intro-copy">
+                  <h3><Network size={14} /> Codebase Intelligence</h3>
+                  <p className="project-empty">
+                    Run a quick in-browser scan for an instant dependency graph, or a deep server-side
+                    analysis that clones the repository for a full structural graph.
+                  </p>
                 </div>
-              )}
-              <div className="repo-intelligence-actions">
-                <button type="button" className="dialog-primary" onClick={() => void analyzeRepository()} disabled={analyzing}>
-                  <Network size={16} /> {analyzing ? "Analyzing…" : `Analyze ${activeConnection?.external_ref || "repository"}`}
-                </button>
-                {analyzedFiles.length > 0 && (
-                  <button type="button" className="dialog-cancel" onClick={() => setExportOpen(true)}>
-                    Export graph
+                <div className="repo-intelligence-actions">
+                  <button type="button" className="dialog-primary" onClick={() => void analyzeRepository()} disabled={analyzing}>
+                    {analyzing ? <RefreshCw size={16} className="animate-spin" /> : <Network size={16} />}
+                    {analyzing ? "Analyzing…" : `Analyze ${activeConnection?.external_ref || "repository"}`}
                   </button>
-                )}
+                  <button type="button" className="repo-intelligence-action-deep" onClick={() => void deepAnalyzeRepository()} disabled={deepAnalyzing}>
+                    {deepAnalyzing ? <RefreshCw size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    {deepAnalyzing ? "Running deep analysis…" : "Deep analysis (graphify)"}
+                    <span className="repo-meta-badge"><Lock aria-hidden="true" size={11} /> Approval required</span>
+                  </button>
+                  {analyzedFiles.length > 0 && (
+                    <button type="button" className="dialog-cancel" onClick={() => setExportOpen(true)}>
+                      Export graph
+                    </button>
+                  )}
+                </div>
               </div>
+
               {analyzing && analysisStep && (
                 <AnalysisLoader step={analysisStep} repoLabel={activeConnection?.external_ref || "repository"} />
               )}
               {analysisError && <p className="project-empty">{analysisError}</p>}
+
               {exportOpen && (
                 <ExportModal
                   nodes={analyzedFiles.map((f) => ({ id: f.path, name: f.name, layer: f.folder }))}
@@ -526,41 +601,84 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
                   onClose={() => setExportOpen(false)}
                 />
               )}
-              {health && (
-                <div className="repo-health-row">
-                  <div className="ring" style={{ background: `conic-gradient(var(--teal-600) 0 ${health.score}%, var(--border-subtle) ${health.score}% 100%)` }}>
-                    <span>{health.grade}</span>
-                  </div>
-                  <div>
-                    <strong>Health score: {health.score}/100</strong>
-                    <p className="project-empty">{analyzedFiles.length} files analyzed · {functions.length} functions · {connectionsGraph.length} dependencies</p>
-                  </div>
-                </div>
-              )}
-              {issues.length > 0 && (
-                <div className="repo-issues">
-                  <h3><Shield size={14} /> Issues</h3>
-                  {issues.map((issue) => (
-                    <article className="operation-row" key={issue.title}>
-                      <strong>{issue.title}</strong>
-                      <small>{issue.detail}</small>
+
+              {commitAnalyses.length > 0 && (
+                <div className="repo-intel-section repo-commit-history">
+                  <h3><GitCommit size={14} /> Commit health history</h3>
+                  {commitAnalyses.map((analysis) => (
+                    <article className="operation-row" key={analysis.id}>
+                      <strong>{analysis.commit_sha.slice(0, 7)} {analysis.branch ? `· ${analysis.branch}` : ""}</strong>
+                      <small>{analysis.stats.files} files · {analysis.stats.functions} functions · {analysis.issues.length} issue{analysis.issues.length === 1 ? "" : "s"} · {relativeTime(analysis.created_at)}</small>
+                      <em className={`state-${analysis.grade === "A" || analysis.grade === "B" ? "succeeded" : analysis.grade === "C" ? "running" : "failed"}`}>{analysis.grade} · {analysis.health_score}/100</em>
                     </article>
                   ))}
                 </div>
               )}
-              {analyzedFiles.length > 0 && (
-                <div className="repo-blast">
-                  <h3>Blast radius</h3>
-                  <Select aria-label="File for blast radius" value={selectedBlastPath} onChange={(event) => setSelectedBlastPath(event.target.value)}>
-                    {analyzedFiles.map((f) => (
-                      <option key={f.path} value={f.path}>{f.path} ({fnCountByFile.get(f.path) || 0} fns)</option>
-                    ))}
-                  </Select>
-                  {blast && (
-                    <article className="operation-row">
-                      <strong>{blast.count} direct dependents · {blast.transitiveCount} transitive</strong>
-                      <em className={`state-${blast.level === "critical" || blast.level === "high" ? "failed" : blast.level === "medium" ? "running" : "succeeded"}`}>{blast.level}</em>
-                    </article>
+
+              {(deepAnalyzing || deepAnalysisMessage || deepAnalysis) && (
+                <div className="repo-intel-section repo-deep-analysis">
+                  <h3><Sparkles size={14} /> Deep analysis</h3>
+                  {deepAnalyzing && (
+                    <p className="repo-inline-status"><RefreshCw size={13} className="animate-spin" /> Cloning the repository and extracting its structure — this can take a minute…</p>
+                  )}
+                  {deepAnalysisMessage && <p className="project-empty">{deepAnalysisMessage}</p>}
+                  {deepAnalysis && (
+                    <>
+                      <div className="repo-health-row">
+                        <div className="repo-intel-icon"><Sparkles size={20} /></div>
+                        <div>
+                          <strong>Structural graph ready</strong>
+                          <p className="project-empty">
+                            {deepAnalysis.stats.files} files scanned · {deepAnalysis.stats.nodes} structural nodes · {deepAnalysis.stats.edges} edges
+                          </p>
+                        </div>
+                      </div>
+                      <Suspense fallback={tabPanelFallback}>
+                        <AnalysisGraphView graph={deepAnalysis} />
+                      </Suspense>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {health && (
+                <div className="repo-intel-section repo-structure-analysis">
+                  <h3><Network size={14} /> Structure analysis</h3>
+                  <div className="repo-health-row">
+                    <div className="ring" style={{ background: `conic-gradient(var(--teal-600) 0 ${health.score}%, var(--border-subtle) ${health.score}% 100%)` }}>
+                      <span>{health.grade}</span>
+                    </div>
+                    <div>
+                      <strong>Health score: {health.score}/100</strong>
+                      <p className="project-empty">{analyzedFiles.length} files analyzed · {functions.length} functions · {connectionsGraph.length} dependencies</p>
+                    </div>
+                  </div>
+                  {issues.length > 0 && (
+                    <div className="repo-issues">
+                      <h3><Shield size={14} /> Issues</h3>
+                      {issues.map((issue) => (
+                        <article className="operation-row" key={issue.title}>
+                          <strong>{issue.title}</strong>
+                          <small>{issue.detail}</small>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                  {analyzedFiles.length > 0 && (
+                    <div className="repo-blast">
+                      <h3>Blast radius</h3>
+                      <Select aria-label="File for blast radius" value={selectedBlastPath} onChange={(event) => setSelectedBlastPath(event.target.value)}>
+                        {analyzedFiles.map((f) => (
+                          <option key={f.path} value={f.path}>{f.path} ({fnCountByFile.get(f.path) || 0} fns)</option>
+                        ))}
+                      </Select>
+                      {blast && (
+                        <article className="operation-row">
+                          <strong>{blast.count} direct dependents · {blast.transitiveCount} transitive</strong>
+                          <em className={`state-${blast.level === "critical" || blast.level === "high" ? "failed" : blast.level === "medium" ? "running" : "succeeded"}`}>{blast.level}</em>
+                        </article>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -572,6 +690,44 @@ export function RepositoryWorkspace({ accessToken, workspaceId, onNavigateToWork
         </>
       )}
 
+      <DialogShell
+        open={firstRunOverlayOpen}
+        labelledBy="repo-first-run-title"
+        className="repo-first-run-dialog"
+        onClose={analyzing ? undefined : () => setFirstRunOverlayOpen(false)}
+      >
+        <OverlayHeader
+          id="repo-first-run-title"
+          kicker="Setting up your project"
+          title={`Analyzing ${activeConnection?.external_ref || "repository"}`}
+          subtitle="This runs once, right after the repository is connected, so Codebase Intelligence is ready as soon as you land in the project."
+          onClose={analyzing ? undefined : () => setFirstRunOverlayOpen(false)}
+        />
+        <OverlayBody>
+          {analyzing && analysisStep && (
+            <AnalysisLoader step={analysisStep} repoLabel={activeConnection?.external_ref || "repository"} />
+          )}
+          {!analyzing && analysisError && <p className="project-empty">{analysisError}</p>}
+          {!analyzing && !analysisError && health && (
+            <div className="repo-health-row">
+              <div className="ring" style={{ background: `conic-gradient(var(--teal-600) 0 ${health.score}%, var(--border-subtle) ${health.score}% 100%)` }}>
+                <span>{health.grade}</span>
+              </div>
+              <div>
+                <strong>Health score: {health.score}/100</strong>
+                <p className="project-empty">{analyzedFiles.length} files analyzed · {functions.length} functions · {connectionsGraph.length} dependencies</p>
+              </div>
+            </div>
+          )}
+        </OverlayBody>
+        {!analyzing && (
+          <OverlayFooter>
+            <button type="button" className="dialog-primary" onClick={() => setFirstRunOverlayOpen(false)}>
+              Continue to project
+            </button>
+          </OverlayFooter>
+        )}
+      </DialogShell>
     </div>
   );
 }

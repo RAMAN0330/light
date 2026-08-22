@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+celery
+redis
+python-dotenv
+httpx
+pydantic
+gitpython
+graphifyy @ git+https://github.com/Graphify-Labs/graphify.git@10ad921b423b767dd8a947bbf0fbcc2e95038ad3
+django
+psycopg2-binary
+sqlalchemy
+alembic
+sqlparse

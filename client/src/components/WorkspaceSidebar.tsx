@@ -6,11 +6,11 @@ import {
   FileSearch,
   GitBranch,
   Gauge,
-  Library,
   MessageSquareText,
   Orbit,
   LogOut,
   SearchCode,
+  ShieldCheck,
   Sparkles,
   Workflow,
 } from "lucide-react";
@@ -28,7 +28,7 @@ type Props = {
   onProjects: () => void;
   onRepositories: () => void;
   onOperations: () => void;
-  onKnowledge: () => void;
+  onGovernance: () => void;
   onLauncher: (mode: "research" | "analyze" | "code") => void;
   onNavigateHome?: () => void;
   onSignOut?: () => void;
@@ -53,7 +53,7 @@ type NavSectionConfig = {
 // automatically gets an icon, a label, and a collapsed-mode tooltip — add new
 // pages by extending this config rather than hand-writing another NavButton.
 function useNavSections(props: Props): NavSectionConfig[] {
-  const { surface, conversationCount, onOverview, onConversations, onRepositories, onOperations, onKnowledge, onLauncher } = props;
+  const { surface, conversationCount, onOverview, onConversations, onRepositories, onOperations, onGovernance, onLauncher } = props;
   return [
     {
       title: "Workspace",
@@ -68,7 +68,6 @@ function useNavSections(props: Props): NavSectionConfig[] {
       items: [
         { id: "research", icon: <FileSearch size={18} />, label: "Research & scraping", active: false, onClick: () => onLauncher("research") },
         { id: "analysis", icon: <Braces size={18} />, label: "Analysis", active: false, onClick: () => onLauncher("analyze") },
-        { id: "knowledge", icon: <Library size={18} />, label: "Knowledge", ariaLabel: "Knowledge", active: false, onClick: onKnowledge },
         { id: "codebases", icon: <SearchCode size={18} />, label: "Codebases", active: false, onClick: () => onLauncher("code") },
       ],
     },
@@ -76,6 +75,7 @@ function useNavSections(props: Props): NavSectionConfig[] {
       title: "Manage",
       items: [
         { id: "automations", icon: <Workflow size={18} />, label: "Automations", active: false, onClick: onOperations },
+        { id: "governance", icon: <ShieldCheck size={18} />, label: "Governance", ariaLabel: "Governance", active: false, onClick: onGovernance },
       ],
     },
   ];

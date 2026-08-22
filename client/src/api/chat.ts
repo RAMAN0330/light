@@ -4,12 +4,8 @@ export type Project = { id: string; name: string; instructions: string; reposito
 export type ProjectDocument = { id: string; name: string; created_at?: string };
 export type Workspace = { id: string; name: string; role: string; organization_id: string };
 export type OrganizationMember = { user_id: string; role: string; created_at: string };
-export type Skill = { id: string; name: string; version: string; status: "draft" | "in_review" | "published" | "retired"; manifest: { tools: string[]; data_access: string[]; source?: string; license?: string; [key: string]: unknown }; created_by: string; created_at: string };
 export type Policy = { id: string; action: string; decision: "allow" | "require_approval" | "deny"; enabled: boolean };
 export type ApprovalRequest = { id: string; action: string; summary: string; status: "pending" | "approved" | "denied"; requested_by?: string; created_at?: string };
-export type Artifact = { id: string; name: string; status: "uploaded" | "normalized" | "failed"; failure_reason?: string | null };
-export type Citation = { artifact_id: string; artifact_name: string; excerpt: string; start_offset: number; end_offset: number; score: number };
-export type KnowledgeCollection = { id: string; name: string };
 export type IntelligenceAdapter = "graphify" | "graft" | "headroom" | "agent_reach";
 export type WorkspaceTask = { id: string; title: string; description: string; status: "open" | "in_progress" | "done" | "cancelled" };
 export type WorkspaceNote = { id: string; title: string; content: string };
@@ -59,28 +55,12 @@ export const chatApi = {
   async listMembers(token: string, organizationId: string): Promise<OrganizationMember[]> {
     return (await request(token, `/organizations/${organizationId}/members`)).json();
   },
-  async listSkills(token: string, workspaceId: string): Promise<Skill[]> {
-    return (await request(token, `/workspaces/${workspaceId}/skills`)).json();
-  },
-  async importUpstreamSkills(token: string, workspaceId: string): Promise<{ imported: number; skipped: number }> {
-    return (await request(token, `/workspaces/${workspaceId}/upstream-skills/import`, { method: "POST" })).json();
-  },
   async listPolicies(token: string, workspaceId: string): Promise<Policy[]> {
     return (await request(token, `/workspaces/${workspaceId}/policies`)).json();
   },
   async listApprovalRequests(token: string, workspaceId: string): Promise<ApprovalRequest[]> {
     return (await request(token, `/workspaces/${workspaceId}/approval-requests`)).json();
   },
-  async listArtifacts(token: string, workspaceId: string): Promise<Artifact[]> { return (await request(token, `/workspaces/${workspaceId}/artifacts`)).json(); },
-  async uploadArtifact(token: string, workspaceId: string, file: File): Promise<Artifact> {
-    return (await request(token, `/workspaces/${workspaceId}/artifacts?name=${encodeURIComponent(file.name)}&mime_type=${encodeURIComponent(file.type || "text/plain")}`, { method: "POST", body: file, headers: { "Content-Type": file.type || "text/plain" } })).json();
-  },
-  async normalizeArtifact(token: string, artifactId: string): Promise<void> {
-    await request(token, `/artifacts/${artifactId}/normalize`, { method: "POST" });
-  },
-  async queryCollection(token: string, collectionId: string, query: string): Promise<Citation[]> { return (await request(token, `/collections/${collectionId}/query`, { method: "POST", body: JSON.stringify({ query }) })).json(); },
-  async listCollections(token: string, workspaceId: string): Promise<KnowledgeCollection[]> { return (await request(token, `/workspaces/${workspaceId}/collections`)).json(); },
-  async createResearchReport(token: string, workspaceId: string, title: string, content: string, citations: string[]): Promise<{ id: string }> { return (await request(token, `/workspaces/${workspaceId}/research-reports`, { method: "POST", body: JSON.stringify({ title, content, citations }) })).json(); },
   async registerAdapter(token: string, workspaceId: string, name: IntelligenceAdapter): Promise<{ id: string; enabled: boolean }> { return (await request(token, `/workspaces/${workspaceId}/adapters`, { method: "POST", body: JSON.stringify({ name, manifest: {} }) })).json(); },
   async createSkillObservation(token: string, workspaceId: string, title: string): Promise<{ id: string }> { return (await request(token, `/workspaces/${workspaceId}/skill-observations`, { method: "POST", body: JSON.stringify({ title, manifest: { tools: [], data_access: [] } }) })).json(); },
   async listTasks(token: string, workspaceId: string): Promise<WorkspaceTask[]> { return (await request(token, `/workspaces/${workspaceId}/tasks`)).json(); },

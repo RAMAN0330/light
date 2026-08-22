@@ -233,11 +233,17 @@ async def ingest_github_push_event(repository, connection: dict, payload: dict, 
 
 async def sync_all_commit_analyses(repository, github_token: str, github_api_url: str) -> dict:
     connections = repository.list_enabled_ci_connections()
-    counts = {"connections": 0, "commits": 0}
+    counts = {"connections": 0, "commits": 0, "errors": 0}
     async with httpx.AsyncClient(timeout=30.0) as client:
         for connection in connections:
             if connection["provider"] != "github_actions":
                 continue
             counts["connections"] += 1
-            counts["commits"] += await sync_commit_analysis_for_connection(repository, connection, github_token, github_api_url, client)
+            try:
+                counts["commits"] += await sync_commit_analysis_for_connection(repository, connection, github_token, github_api_url, client)
+            except httpx.HTTPStatusError as exc:
+                counts["errors"] += 1
+                if exc.response.status_code == 403 and "rate limit" in exc.response.text.lower():
+                    # Shared token, so every remaining connection would fail the same way.
+                    break
     return counts

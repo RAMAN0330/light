@@ -12,9 +12,12 @@ GitHub access for public repos, exactly like ci_ingestion's poll fallback.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 
 import httpx
+
+from . import repo_analysis
 
 
 class GitHubGatewayError(ValueError):
@@ -149,3 +152,30 @@ class GitHubGateway:
             user_id, workspace_id, connection, "tags",
             lambda token: self._get(f"/repos/{connection['external_ref']}/tags", {"per_page": limit}, token),
         )
+
+    async def analyze(self, user_id: str, workspace_id: str, connection: dict, ref: str | None = None, timeout: float = 120.0) -> dict:
+        """Clones the connection's repo and runs graphify structural
+        extraction. A meaningfully higher-risk action than the other repo.*
+        reads above (it clones the full tree instead of proxying single API
+        calls), so it is gated under its own ``repo.analysis.run`` action,
+        seeded ``require_approval`` for every workspace like ``db.schema.read``.
+        """
+        action = "repo.analysis.run"
+        decision = self.policies.policy_decision(workspace_id, action)
+        if decision == "deny":
+            self._audit(user_id, workspace_id, action, "denied")
+            return {"status": "denied", "reason": "Workspace policy denied this action."}
+        if decision == "require_approval":
+            approval = self.policies.create_approval_request(user_id, workspace_id, action, f"Analyze {connection['external_ref']}")
+            self._audit(user_id, workspace_id, action, "approval_required")
+            return {"status": "approval_required", "approval_id": approval["id"]}
+        token = self._token_for(connection["id"])
+        branch = ref or await self.default_branch(user_id, workspace_id, connection)
+        clone_url = repo_analysis.authenticated_clone_url(connection["external_ref"], token)
+        try:
+            data = await asyncio.wait_for(asyncio.to_thread(repo_analysis.clone_and_extract, clone_url, branch), timeout=timeout)
+        except Exception as error:  # noqa: BLE001 - mirrors httpx.HTTPError handling above; clone/extract can fail many ways
+            self._audit(user_id, workspace_id, action, "failed")
+            return {"status": "failed", "error": str(error)}
+        self._audit(user_id, workspace_id, action, "completed")
+        return {"status": "completed", "data": data}

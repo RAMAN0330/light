@@ -68,6 +68,8 @@ export function WorkspacesPage({ workspaces, workspaceId, members = [], workspac
                 <motion.article
                   key={workspace.id}
                   className={`workspace-card-panel${workspace.id === workspaceId ? " is-selected" : ""}`}
+                  aria-label={workspace.name}
+                  aria-current={workspace.id === workspaceId ? "true" : undefined}
                   initial={reduceMotion ? false : { opacity: 0, y: 6 }}
                   animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: index * 0.03, ease: "easeOut" }}

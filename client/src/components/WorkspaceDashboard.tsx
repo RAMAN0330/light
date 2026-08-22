@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import type {
   ApprovalRequest,
-  Artifact,
   Notification,
   Project,
   WorkspaceSchedule,
@@ -38,13 +37,11 @@ type Props = {
   notifications: Notification[];
   activity: { id: string; action: string; resource_type: string }[];
   approvals: ApprovalRequest[];
-  artifacts: Artifact[];
   projects: Project[];
   accessToken: string;
   workspaceId: string;
   onLauncher: (mode: LauncherMode) => void;
   onOperations: () => void;
-  onKnowledge: () => void;
   onGovernance: () => void;
   onProjectCreate: () => void;
   onNavigateToWorkspace: () => void;
@@ -64,13 +61,11 @@ export function WorkspaceDashboard({
   notifications,
   activity,
   approvals,
-  artifacts,
   projects,
   accessToken,
   workspaceId,
   onLauncher,
   onOperations,
-  onKnowledge,
   onGovernance,
   onProjectCreate,
   onNavigateToWorkspace,
@@ -255,14 +250,6 @@ export function WorkspaceDashboard({
                 <span className="attention-text">
                   <strong>{pendingApprovals.length} pending approval{pendingApprovals.length === 1 ? "" : "s"}</strong>
                   <small>Review protected actions</small>
-                </span>
-                <ArrowUpRight size={14} />
-              </button>
-              <button type="button" className="attention-item" onClick={onKnowledge}>
-                <span className="attention-icon"><CircleAlert size={16} /></span>
-                <span className="attention-text">
-                  <strong>{artifacts.filter((artifact) => artifact.status === "failed").length} failed sources</strong>
-                  <small>Inspect ingestion status</small>
                 </span>
                 <ArrowUpRight size={14} />
               </button>

@@ -11,3 +11,5 @@ firecrawl-anydoc==0.1.9
 asyncpg>=0.30
 aiomysql>=0.2
 motor>=3.6
+GitPython>=3.1
+graphifyy==0.9.42

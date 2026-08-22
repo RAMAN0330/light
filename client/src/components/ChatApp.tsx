@@ -2,16 +2,12 @@ import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
   chatApi,
   type ApprovalRequest,
-  type Artifact,
-  type Citation,
   type ChatMode,
   type Conversation,
   type Message,
   type Policy,
   type Project,
   type ProjectDocument,
-  type Skill,
-  type KnowledgeCollection,
   type IntelligenceAdapter,
   type Notification,
   type OrganizationMember,
@@ -26,7 +22,6 @@ import { repositoryApi } from "../api/repositories";
 import { AssistantMessage } from "./AssistantMessage";
 import { GovernanceDialog } from "./GovernanceDialog";
 import { InfraLogsViewer } from "./InfraLogsViewer";
-import { KnowledgeDialog } from "./KnowledgeDialog";
 import { MembersDialog } from "./MembersDialog";
 import { OperationsDialog } from "./OperationsDialog";
 // Lazy-loaded: pulls in parser.ts/acorn, reactflow, d3, highlight.js,
@@ -39,7 +34,6 @@ import {
   OrbitalLauncher,
   type LauncherMode,
 } from "./OrbitalLauncher";
-import { SkillsDialog } from "./SkillsDialog";
 import { WorkspacesPage } from "./WorkspacesPage";
 import { VirtualMessageList } from "./VirtualMessageList";
 import { WorkspaceDashboard } from "./WorkspaceDashboard";
@@ -108,22 +102,11 @@ export function ChatApp({
   const [workspaceId, setWorkspaceId] = useState("");
   const [workspaceForm, setWorkspaceForm] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [skills, setSkills] = useState<Skill[]>([]);
-  const [importingSkills, setImportingSkills] = useState(false);
   const [governanceOpen, setGovernanceOpen] = useState(false);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>(
     [],
   );
-  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [collections, setCollections] = useState<KnowledgeCollection[]>([]);
-  const [collectionId, setCollectionId] = useState("");
-  const [knowledgeQuery, setKnowledgeQuery] = useState("");
-  const [citations, setCitations] = useState<Citation[]>([]);
-  const [reportTitle, setReportTitle] = useState("");
-  const [reportContent, setReportContent] = useState("");
   const [adapterMessage, setAdapterMessage] = useState("");
   const [observationTitle, setObservationTitle] = useState("");
   const [operationsOpen, setOperationsOpen] = useState(false);
@@ -164,6 +147,7 @@ export function ChatApp({
   const [projectName, setProjectName] = useState("");
   const [projectInstructions, setProjectInstructions] = useState("");
   const [projectRepositoryId, setProjectRepositoryId] = useState("");
+  const [pendingRepoAnalysis, setPendingRepoAnalysis] = useState("");
   const [projectRepositories, setProjectRepositories] = useState<CiConnection[]>([]);
   const [projectRepositoryRef, setProjectRepositoryRef] = useState("");
   const [projectRepositoryVerified, setProjectRepositoryVerified] = useState(false);
@@ -243,18 +227,14 @@ export function ChatApp({
       api.listActivity(accessToken, workspaceId),
       api.listSchedules(accessToken, workspaceId),
       api.listApprovalRequests(accessToken, workspaceId),
-      api.listArtifacts(accessToken, workspaceId),
-      api.listSkills(accessToken, workspaceId),
     ])
-      .then(([taskItems, noteItems, notificationItems, activityItems, scheduleItems, approvalItems, artifactItems, skillItems]) => {
+      .then(([taskItems, noteItems, notificationItems, activityItems, scheduleItems, approvalItems]) => {
         setTasks(taskItems);
         setNotes(noteItems);
         setNotifications(notificationItems);
         setActivity(activityItems);
         setSchedules(scheduleItems);
         setApprovalRequests(approvalItems);
-        setArtifacts(artifactItems);
-        setSkills(skillItems);
       })
       .catch(() => setError("Could not load the workspace overview."));
   }, [accessToken, api, workspaceId]);
@@ -392,27 +372,6 @@ export function ChatApp({
       setDeleteTarget(null); setDeleteConfirmationName("");
     } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : "Could not delete this item."); }
   }
-  async function openSkills() {
-    if (!workspaceId) return;
-    setSkillsOpen(true);
-    try {
-      setSkills(await api.listSkills(accessToken, workspaceId));
-    } catch {
-      setError("Could not load workspace skills.");
-    }
-  }
-  async function importUpstreamSkills() {
-    if (!workspaceId) return;
-    setImportingSkills(true);
-    try {
-      await api.importUpstreamSkills(accessToken, workspaceId);
-      setSkills(await api.listSkills(accessToken, workspaceId));
-    } catch {
-      setError("Could not import upstream skill processes.");
-    } finally {
-      setImportingSkills(false);
-    }
-  }
   async function openGovernance() {
     if (!workspaceId) return;
     setGovernanceOpen(true);
@@ -425,53 +384,6 @@ export function ChatApp({
       setApprovalRequests(approvalItems);
     } catch {
       setError("Could not load workspace governance.");
-    }
-  }
-  async function openKnowledge() {
-    if (!workspaceId) return;
-    setKnowledgeOpen(true);
-    try {
-      const [artifactItems, collectionItems] = await Promise.all([
-        api.listArtifacts(accessToken, workspaceId),
-        api.listCollections(accessToken, workspaceId),
-      ]);
-      setArtifacts(artifactItems);
-      setCollections(collectionItems);
-      setCollectionId(collectionItems[0]?.id || "");
-    } catch {
-      setError("Could not load workspace knowledge.");
-    }
-  }
-  async function searchKnowledge(event: React.FormEvent) {
-    event.preventDefault();
-    if (!collectionId || !knowledgeQuery.trim()) return;
-    try {
-      setCitations(
-        await api.queryCollection(
-          accessToken,
-          collectionId,
-          knowledgeQuery.trim(),
-        ),
-      );
-    } catch {
-      setError("Could not search workspace knowledge.");
-    }
-  }
-  async function createReport(event: React.FormEvent) {
-    event.preventDefault();
-    if (!workspaceId || !reportTitle.trim() || !reportContent.trim()) return;
-    try {
-      await api.createResearchReport(
-        accessToken,
-        workspaceId,
-        reportTitle.trim(),
-        reportContent.trim(),
-        [...new Set(citations.map((citation) => citation.artifact_id))],
-      );
-      setReportTitle("");
-      setReportContent("");
-    } catch {
-      setError("Could not create the cited research report.");
     }
   }
   async function registerAdapter(name: IntelligenceAdapter) {
@@ -599,18 +511,6 @@ export function ChatApp({
   async function createWorkspaceTask(event: React.FormEvent) { event.preventDefault(); if (!workspaceId || !taskTitle.trim()) return; const task = await api.createTask(accessToken, workspaceId, taskTitle.trim()); setTasks((items) => [task, ...items]); setTaskTitle(""); }
   async function createWorkspaceNote(event: React.FormEvent) { event.preventDefault(); if (!workspaceId || !noteTitle.trim() || !noteContent.trim()) return; const note = await api.createNote(accessToken, workspaceId, noteTitle.trim(), noteContent.trim()); setNotes((items) => [note, ...items]); setNoteTitle(""); setNoteContent(""); }
   async function createWorkspaceSchedule(event: React.FormEvent) { event.preventDefault(); if (!workspaceId || !scheduleTitle.trim()) return; const schedule = await api.createSchedule(accessToken, workspaceId, scheduleTitle.trim(), scheduleCron); setSchedules((items) => [schedule, ...items]); setScheduleTitle(""); }
-  async function uploadKnowledge(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file || !workspaceId || !/\.(txt|md|markdown|csv|doc|docx|docm|odt|ods|odp|rtf|epub|pdf|ppt|pps|pot|pptx|pptm|ppsx|ppsm|xls|xlsx|xlsm|xlsb)$/i.test(file.name)) return;
-    try {
-      const artifact = await api.uploadArtifact(accessToken, workspaceId, file);
-      await api.normalizeArtifact(accessToken, artifact.id);
-      setArtifacts(await api.listArtifacts(accessToken, workspaceId));
-    } catch {
-      setError("Could not upload this workspace source.");
-    }
-    event.target.value = "";
-  }
   async function createProject(event: React.FormEvent) {
     event.preventDefault();
     if (!projectName.trim()) return;
@@ -634,6 +534,10 @@ export function ChatApp({
       setProjectRepositoryId("");
       setProjectRepositoryPrivate(false);
       setProjectRepositoryToken("");
+      // Land on the repo's Codebase Intelligence tab and run the first
+      // analysis immediately, rather than waiting for the background poller.
+      setPendingRepoAnalysis(repositoryConnectionId);
+      setSurface("repositories");
     } catch {
       setError("Could not create this project.");
     }
@@ -1140,7 +1044,7 @@ export function ChatApp({
           onProjects={() => setSurface("project-picker")}
           onRepositories={() => setSurface("repositories")}
           onOperations={() => void openOperations()}
-          onKnowledge={() => void openKnowledge()}
+          onGovernance={() => void openGovernance()}
           onLauncher={openLauncher}
           onNavigateHome={onNavigateHome}
           onSignOut={onSignOut}
@@ -1170,7 +1074,6 @@ export function ChatApp({
             selectedProjectId={projectId}
             conversations={conversations}
             documents={documents}
-            artifacts={artifacts}
             members={members}
             onSelectProject={setProjectId}
             onCreateProject={openProjectForm}
@@ -1191,13 +1094,11 @@ export function ChatApp({
             notifications={notifications}
             activity={activity}
             approvals={approvalRequests}
-            artifacts={artifacts}
             projects={projects}
             accessToken={accessToken}
             workspaceId={workspaceId}
             onLauncher={openLauncher}
             onOperations={() => void openOperations()}
-            onKnowledge={() => void openKnowledge()}
             onGovernance={() => void openGovernance()}
             onProjectCreate={openProjectForm}
             onNavigateToWorkspace={() => setSurface("workspaces")}
@@ -1209,7 +1110,6 @@ export function ChatApp({
             selectedProjectId={projectId}
             conversations={conversations}
             documents={documents}
-            artifacts={artifacts}
             members={members}
             onSelectProject={setProjectId}
             onCreateProject={openProjectForm}
@@ -1225,7 +1125,14 @@ export function ChatApp({
           />
         ) : surface === "repositories" ? (
           <Suspense fallback={<div className="repo-workspace-loading">Loading repository tools…</div>}>
-            <RepositoryWorkspace accessToken={accessToken} workspaceId={workspaceId} onNavigateToWorkspace={() => setSurface("overview")} />
+            <RepositoryWorkspace
+              accessToken={accessToken}
+              workspaceId={workspaceId}
+              onNavigateToWorkspace={() => setSurface("overview")}
+              initialConnectionId={pendingRepoAnalysis}
+              autoAnalyze={!!pendingRepoAnalysis}
+              onAutoAnalyzeConsumed={() => setPendingRepoAnalysis("")}
+            />
           </Suspense>
         ) : (
           <>
@@ -1512,26 +1419,7 @@ export function ChatApp({
             </form>
           </DialogShell>
         )}
-        <SkillsDialog open={skillsOpen} skills={skills} importing={importingSkills} onClose={() => setSkillsOpen(false)} onImportAll={() => void importUpstreamSkills()} />
         <MembersDialog open={membersOpen} members={members} onClose={() => setMembersOpen(false)} />
-        <KnowledgeDialog
-          open={knowledgeOpen}
-          artifacts={artifacts}
-          collections={collections}
-          collectionId={collectionId}
-          knowledgeQuery={knowledgeQuery}
-          citations={citations}
-          reportTitle={reportTitle}
-          reportContent={reportContent}
-          onClose={() => setKnowledgeOpen(false)}
-          onUpload={uploadKnowledge}
-          onCollectionChange={setCollectionId}
-          onKnowledgeQueryChange={setKnowledgeQuery}
-          onSearch={searchKnowledge}
-          onReportTitleChange={setReportTitle}
-          onReportContentChange={setReportContent}
-          onCreateReport={createReport}
-        />
         <OperationsDialog
           open={operationsOpen}
           tasks={tasks}
